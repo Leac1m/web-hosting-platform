@@ -28,6 +28,7 @@ describe('Deploy lifecycle smoke test', () => {
 
     process.env.DEPLOY_SECRET = 'test-secret'
     process.env.GITHUB_TOKEN = 'gh-token'
+    delete process.env.GITHUB_APP_ID
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
