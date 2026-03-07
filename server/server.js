@@ -3,7 +3,7 @@ import multer from "multer"
 import fs from "fs"
 import path from "path"
 import * as tar from "tar"
-import { triggerBuild } from "./services/buildService.js"
+import { triggerBuild, GitHubError } from "./services/buildService.js"
 
 const app = express()
 
@@ -42,6 +42,21 @@ app.post("/deploy", async (req, res) => {
   } catch (err) {
 
     console.error(err)
+
+    if (err instanceof GitHubError) {
+      if (err.statusCode === 401) {
+        return res.status(401).json({ error: "Invalid GitHub token" })
+      }
+      if (err.statusCode === 403) {
+        return res.status(403).json({ error: "No permission to access repo or workflow" })
+      }
+      if (err.statusCode === 404) {
+        return res.status(404).json({ error: "Repository or workflow not found" })
+      }
+      if (err.statusCode === 422) {
+        return res.status(422).json({ error: "Invalid branch or repository reference" })
+      }
+    }
 
     return res.status(500).json({
       error: "Failed to trigger deployment"

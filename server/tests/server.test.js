@@ -11,6 +11,13 @@ jest.unstable_mockModule('tar', () => ({
 
 jest.unstable_mockModule('../services/buildService.js', () => ({
   triggerBuild: mockTriggerBuild,
+  GitHubError: class GitHubError extends Error {
+    constructor(message, statusCode, githubError) {
+      super(message)
+      this.statusCode = statusCode
+      this.githubError = githubError
+    }
+  },
 }))
 
 describe('POST /deploy/upload', () => {
@@ -89,6 +96,66 @@ describe('POST /deploy/upload', () => {
 
       expect(response.status).toBe(500)
       expect(response.body).toEqual({ error: 'Failed to trigger deployment' })
+    })
+
+    test('returns 401 when GitHub token is invalid', async () => {
+      const { GitHubError } = await import('../services/buildService.js')
+      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockTriggerBuild.mockRejectedValue(
+        new GitHubError('Invalid token', 401, 'authentication_failed')
+      )
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(401)
+      expect(response.body).toEqual({ error: 'Invalid GitHub token' })
+    })
+
+    test('returns 403 when no permission to access repo', async () => {
+      const { GitHubError } = await import('../services/buildService.js')
+      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockTriggerBuild.mockRejectedValue(
+        new GitHubError('Permission denied', 403, 'permission_denied')
+      )
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(403)
+      expect(response.body).toEqual({ error: 'No permission to access repo or workflow' })
+    })
+
+    test('returns 404 when repo or workflow not found', async () => {
+      const { GitHubError } = await import('../services/buildService.js')
+      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockTriggerBuild.mockRejectedValue(
+        new GitHubError('Not found', 404, 'not_found')
+      )
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(404)
+      expect(response.body).toEqual({ error: 'Repository or workflow not found' })
+    })
+
+    test('returns 422 when branch ref is invalid', async () => {
+      const { GitHubError } = await import('../services/buildService.js')
+      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockTriggerBuild.mockRejectedValue(
+        new GitHubError('Invalid ref', 422, 'invalid_ref')
+      )
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'nonexistent-branch' })
+
+      expect(response.status).toBe(422)
+      expect(response.body).toEqual({ error: 'Invalid branch or repository reference' })
     })
   })
 
