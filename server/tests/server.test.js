@@ -3,9 +3,14 @@ import fs from 'fs'
 import { jest } from '@jest/globals'
 
 const mockTarX = jest.fn()
+const mockTriggerBuild = jest.fn()
 
 jest.unstable_mockModule('tar', () => ({
   x: mockTarX,
+}))
+
+jest.unstable_mockModule('../services/buildService.js', () => ({
+  triggerBuild: mockTriggerBuild,
 }))
 
 describe('POST /deploy/upload', () => {
@@ -15,8 +20,10 @@ describe('POST /deploy/upload', () => {
     jest.resetModules()
 
     process.env.DEPLOY_SECRET = 'test-secret'
+    process.env.GITHUB_TOKEN = 'gh-token'
 
     mockTarX.mockReset()
+    mockTriggerBuild.mockReset()
 
     jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
     jest.spyOn(fs, 'unlinkSync').mockImplementation(() => undefined)
@@ -27,6 +34,62 @@ describe('POST /deploy/upload', () => {
 
   afterEach(() => {
     jest.restoreAllMocks()
+  })
+
+  describe('POST /deploy', () => {
+    test('returns 400 when repo is missing', async () => {
+      const response = await request(app)
+        .post('/deploy')
+        .send({ branch: 'main' })
+
+      expect(response.status).toBe(400)
+      expect(response.body).toEqual({ error: 'Missing repo name' })
+      expect(mockTriggerBuild).not.toHaveBeenCalled()
+    })
+
+    test('returns 500 when GitHub token is missing', async () => {
+      delete process.env.GITHUB_TOKEN
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(500)
+      expect(response.body).toEqual({ error: 'Missing GitHub token' })
+      expect(mockTriggerBuild).not.toHaveBeenCalled()
+    })
+
+    test('returns 202 and triggers build for valid request', async () => {
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(202)
+      expect(response.body).toEqual({
+        status: 'queued',
+        repo: 'owner/repo',
+        branch: 'main',
+      })
+      expect(mockTriggerBuild).toHaveBeenCalledWith(
+        'owner/repo',
+        'main',
+        'gh-token',
+      )
+    })
+
+    test('returns 500 when build trigger fails', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockTriggerBuild.mockRejectedValue(new Error('dispatch failed'))
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({ repo: 'owner/repo', branch: 'main' })
+
+      expect(response.status).toBe(500)
+      expect(response.body).toEqual({ error: 'Failed to trigger deployment' })
+    })
   })
 
   test('returns 403 when auth is missing', async () => {

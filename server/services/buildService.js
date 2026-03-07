@@ -1,6 +1,6 @@
 import axios from "axios"
 
-async function triggerBuild(repo, branch, token) {
+export async function triggerBuild(repo, branch, token) {
 
   const [owner, repoName] = repo.split("/")
 
