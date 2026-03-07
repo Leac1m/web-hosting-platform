@@ -13,6 +13,10 @@ export function getDeployStatus(project) {
   return deployStatusMap.get(project) || null
 }
 
+export function getAllDeployStatuses() {
+  return Array.from(deployStatusMap.values())
+}
+
 export function getProjectNameFromRepo(repo) {
   if (!repo || typeof repo !== "string") {
     return null

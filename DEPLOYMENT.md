@@ -37,6 +37,10 @@ GITHUB_APP_ID=<app-id>
 GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem>
 # or
 GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+
+# Phase 2 frontend auth URLs
+BACKEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:5173
 ```
 
 ### 1. Set Backend URL Secret

@@ -4,7 +4,9 @@ import * as tar from 'tar'
 import { triggerBuild, GitHubError } from '../services/buildService.js'
 import { validateRepoName } from '../services/pathValidator.js'
 import { logEvent, logError } from '../services/logger.js'
+import { updateRepositorySecrets } from '../services/githubAppAuth.js'
 import {
+  getAllDeployStatuses,
   getDeployStatus,
   getProjectNameFromRepo,
   setDeployStatus,
@@ -21,6 +23,21 @@ export const getDeploymentStatus = (req, res) => {
   }
 
   return res.json(status)
+}
+
+export const listDeployments = (req, res) => {
+  const username = req.user?.login
+  const allStatuses = getAllDeployStatuses()
+
+  if (!username) {
+    return res.json(allStatuses)
+  }
+
+  const ownedDeployments = allStatuses.filter((item) =>
+    item.repo?.toLowerCase().startsWith(`${username.toLowerCase()}/`)
+  )
+
+  return res.json(ownedDeployments)
 }
 
 export const triggerDeployment = async (req, res) => {
@@ -44,6 +61,24 @@ export const triggerDeployment = async (req, res) => {
   logEvent('deploy_requested', { repo, branch, project: projectName })
 
   try {
+    // Update repository secrets if using GitHub App
+    if (hasGitHubAppConfig) {
+      const [owner, repoName] = repo.split('/')
+      const deployBackendUrl = process.env.DEPLOY_BACKEND_URL || 'http://localhost:3000'
+      const deploySecret = process.env.DEPLOY_SECRET
+
+      if (!deploySecret) {
+        throw new Error('DEPLOY_SECRET not configured')
+      }
+
+      await updateRepositorySecrets(owner, repoName, {
+        DEPLOY_BACKEND_URL: deployBackendUrl,
+        DEPLOY_SECRET: deploySecret,
+      })
+
+      logEvent('secrets_updated', { repo, project: projectName })
+    }
+
     await triggerBuild(repo, branch, githubToken)
 
     setDeployStatus(projectName, 'queued', { repo, branch })
