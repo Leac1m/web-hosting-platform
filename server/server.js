@@ -5,6 +5,12 @@ import path from "path"
 import * as tar from "tar"
 import { triggerBuild, GitHubError } from "./services/buildService.js"
 import { validateRepoName } from "./services/pathValidator.js"
+import { logEvent, logError } from "./services/logger.js"
+import {
+  getDeployStatus,
+  getProjectNameFromRepo,
+  setDeployStatus
+} from "./services/deployStatusStore.js"
 
 const app = express()
 
@@ -15,6 +21,17 @@ const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 app.use(express.json())
 
 app.use("/sites", express.static("deployments"))
+
+app.get("/deploy/status/:project", (req, res) => {
+  const project = req.params.project
+  const status = getDeployStatus(project)
+
+  if (!status) {
+    return res.status(404).json({ error: "Deployment status not found" })
+  }
+
+  return res.json(status)
+})
 
 app.post("/deploy", async (req, res) => {
 
@@ -30,9 +47,16 @@ app.post("/deploy", async (req, res) => {
     return res.status(500).json({ error: "Missing GitHub token" })
   }
 
+  const projectName = getProjectNameFromRepo(repo)
+
+  logEvent("deploy_requested", { repo, branch, project: projectName })
+
   try {
 
     await triggerBuild(repo, branch, githubToken)
+
+    setDeployStatus(projectName, "queued", { repo, branch })
+    logEvent("deploy_queued", { repo, branch, project: projectName })
 
     return res.status(202).json({
       status: "queued",
@@ -42,7 +66,8 @@ app.post("/deploy", async (req, res) => {
 
   } catch (err) {
 
-    console.error(err)
+    logError("deploy_trigger_failed", err, { repo, branch, project: projectName })
+    setDeployStatus(projectName, "failed", { repo, branch, reason: err?.message || "Unknown error" })
 
     if (err instanceof GitHubError) {
       if (err.statusCode === 401) {
@@ -93,6 +118,9 @@ app.post("/deploy/upload", upload.single("artifact"), async (req, res) => {
 
   const projectName = validation.projectName
 
+  logEvent("artifact_received", { project: projectName, repo, commit })
+  setDeployStatus(projectName, "upload_received", { repo, commit })
+
   const deployPath = path.join(
     process.cwd(),
     "deployments",
@@ -110,6 +138,9 @@ app.post("/deploy/upload", upload.single("artifact"), async (req, res) => {
 
     fs.unlinkSync(req.file.path)
 
+    setDeployStatus(projectName, "live", { repo, commit, url: `/sites/${projectName}/` })
+    logEvent("deploy_live", { project: projectName, repo, commit, url: `/sites/${projectName}/` })
+
     res.json({
       status: "success",
       project: projectName,
@@ -118,7 +149,8 @@ app.post("/deploy/upload", upload.single("artifact"), async (req, res) => {
 
   } catch (err) {
 
-    console.error(err)
+    logError("artifact_extract_failed", err, { project: projectName, repo, commit })
+    setDeployStatus(projectName, "failed", { repo, commit, reason: err?.message || "Unknown error" })
 
     res.status(500).json({
       error: "Deployment failed"

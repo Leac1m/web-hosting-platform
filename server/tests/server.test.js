@@ -44,6 +44,13 @@ describe('POST /deploy/upload', () => {
   })
 
   describe('POST /deploy', () => {
+    test('returns 404 for unknown deployment status', async () => {
+      const response = await request(app).get('/deploy/status/unknown-project')
+
+      expect(response.status).toBe(404)
+      expect(response.body).toEqual({ error: 'Deployment status not found' })
+    })
+
     test('returns 400 when repo is missing', async () => {
       const response = await request(app)
         .post('/deploy')
@@ -84,6 +91,16 @@ describe('POST /deploy/upload', () => {
         'main',
         'gh-token',
       )
+
+      const statusResponse = await request(app).get('/deploy/status/owner-repo')
+
+      expect(statusResponse.status).toBe(200)
+      expect(statusResponse.body).toMatchObject({
+        project: 'owner-repo',
+        status: 'queued',
+        repo: 'owner/repo',
+        branch: 'main',
+      })
     })
 
     test('returns 500 when build trigger fails', async () => {
@@ -211,6 +228,16 @@ describe('POST /deploy/upload', () => {
       { recursive: true },
     )
     expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
+
+    const statusResponse = await request(app).get('/deploy/status/owner-repo')
+    expect(statusResponse.status).toBe(200)
+    expect(statusResponse.body).toMatchObject({
+      project: 'owner-repo',
+      status: 'live',
+      repo: 'owner/repo',
+      commit: 'abc123',
+      url: '/sites/owner-repo/',
+    })
   })
 
   test('returns 500 when extraction fails', async () => {
