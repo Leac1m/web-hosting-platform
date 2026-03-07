@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { createAppAuth } from '@octokit/auth-app'
 import { Octokit } from '@octokit/rest'
+import sodium from 'libsodium-wrappers'
 
 function readPrivateKey() {
   const keyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH
@@ -50,10 +51,12 @@ export async function getInstallationToken(owner, repo) {
     },
   })
 
-  const { data: installation } = await appOctokit.rest.apps.getRepoInstallation({
-    owner,
-    repo,
-  })
+  const { data: installation } = await appOctokit.rest.apps.getRepoInstallation(
+    {
+      owner,
+      repo,
+    },
+  )
 
   const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
     installation_id: installation.id,
@@ -75,4 +78,61 @@ export async function triggerWorkflowWithApp(owner, repo, branch) {
     workflow_id: 'deploy.yml',
     ref: branch,
   })
+}
+
+/**
+ * Updates a GitHub repository secret
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {string} secretName - Name of the secret
+ * @param {string} secretValue - Value to set
+ */
+export async function updateRepositorySecret(
+  owner,
+  repo,
+  secretName,
+  secretValue,
+) {
+  const installationToken = await getInstallationToken(owner, repo)
+
+  const installationOctokit = new Octokit({
+    auth: installationToken,
+  })
+
+  // Get the repository's public key for secret encryption
+  const { data: publicKeyData } =
+    await installationOctokit.rest.actions.getRepoPublicKey({
+      owner,
+      repo,
+    })
+
+  // Ensure libsodium is ready
+  await sodium.ready
+
+  // Encrypt the secret value using the public key
+  const messageBytes = Buffer.from(secretValue)
+  const keyBytes = Buffer.from(publicKeyData.key, 'base64')
+  const encryptedBytes = sodium.crypto_box_seal(messageBytes, keyBytes)
+  const encryptedValue = Buffer.from(encryptedBytes).toString('base64')
+
+  // Set the secret
+  await installationOctokit.rest.actions.createOrUpdateRepoSecret({
+    owner,
+    repo,
+    secret_name: secretName,
+    encrypted_value: encryptedValue,
+    key_id: publicKeyData.key_id,
+  })
+}
+
+/**
+ * Updates multiple repository secrets at once
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {Object} secrets - Object with secret names as keys and values as values
+ */
+export async function updateRepositorySecrets(owner, repo, secrets) {
+  for (const [secretName, secretValue] of Object.entries(secrets)) {
+    await updateRepositorySecret(owner, repo, secretName, secretValue)
+  }
 }
