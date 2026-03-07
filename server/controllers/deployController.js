@@ -26,14 +26,17 @@ export const getDeploymentStatus = (req, res) => {
 export const triggerDeployment = async (req, res) => {
   const repo = req.body?.repo
   const branch = req.body?.branch || 'main'
+  const hasGitHubAppConfig = Boolean(process.env.GITHUB_APP_ID)
   const githubToken = process.env.GITHUB_TOKEN
 
   if (!repo) {
     return res.status(400).json({ error: 'Missing repo name' })
   }
 
-  if (!githubToken) {
-    return res.status(500).json({ error: 'Missing GitHub token' })
+  if (!hasGitHubAppConfig && !githubToken) {
+    return res
+      .status(500)
+      .json({ error: 'Missing GitHub authentication configuration' })
   }
 
   const projectName = getProjectNameFromRepo(repo)
@@ -65,7 +68,7 @@ export const triggerDeployment = async (req, res) => {
 
     if (err instanceof GitHubError) {
       if (err.statusCode === 401) {
-        return res.status(401).json({ error: 'Invalid GitHub token' })
+        return res.status(401).json({ error: 'GitHub authentication failed' })
       }
       if (err.statusCode === 403) {
         return res
@@ -75,7 +78,7 @@ export const triggerDeployment = async (req, res) => {
       if (err.statusCode === 404) {
         return res
           .status(404)
-          .json({ error: 'Repository or workflow not found' })
+          .json({ error: 'Repository, workflow, or app installation not found' })
       }
       if (err.statusCode === 422) {
         return res

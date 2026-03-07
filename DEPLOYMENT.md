@@ -26,6 +26,19 @@ Configure the following secrets in your GitHub repository for automated deployme
 
 ## Setup Instructions
 
+### 0. Configure GitHub App (Required)
+Create and install a GitHub App with repository permissions:
+- **Actions:** Read and write
+- **Contents:** Read-only
+
+Set backend environment variables:
+```bash
+GITHUB_APP_ID=<app-id>
+GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem>
+# or
+GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+```
+
 ### 1. Set Backend URL Secret
 ```bash
 gh secret set DEPLOY_BACKEND_URL --body "https://your-backend-domain.com"
@@ -54,11 +67,17 @@ To test locally without pushing to GitHub:
 
 1. Start the server with `.env` file:
    ```bash
-   GITHUB_TOKEN=<your-github-token> \
+  GITHUB_APP_ID=<app-id> \
+  GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem> \
    DEPLOY_SECRET=<your-deploy-secret> \
    NODE_ENV=development \
-   npm start
+  npm run dev
    ```
+
+  Legacy fallback is still supported:
+  ```bash
+  GITHUB_TOKEN=<your-github-token>
+  ```
 
 2. Call the `/deploy` endpoint:
    ```bash

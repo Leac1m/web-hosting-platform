@@ -28,6 +28,7 @@ describe('POST /deploy/upload', () => {
 
     process.env.DEPLOY_SECRET = 'test-secret'
     process.env.GITHUB_TOKEN = 'gh-token'
+    delete process.env.GITHUB_APP_ID
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
@@ -61,15 +62,16 @@ describe('POST /deploy/upload', () => {
       expect(mockTriggerBuild).not.toHaveBeenCalled()
     })
 
-    test('returns 500 when GitHub token is missing', async () => {
+    test('returns 500 when GitHub auth config is missing', async () => {
       delete process.env.GITHUB_TOKEN
+      delete process.env.GITHUB_APP_ID
 
       const response = await request(app)
         .post('/deploy')
         .send({ repo: 'owner/repo', branch: 'main' })
 
       expect(response.status).toBe(500)
-      expect(response.body).toEqual({ error: 'Missing GitHub token' })
+      expect(response.body).toEqual({ error: 'Missing GitHub authentication configuration' })
       expect(mockTriggerBuild).not.toHaveBeenCalled()
     })
 
@@ -127,7 +129,7 @@ describe('POST /deploy/upload', () => {
         .send({ repo: 'owner/repo', branch: 'main' })
 
       expect(response.status).toBe(401)
-      expect(response.body).toEqual({ error: 'Invalid GitHub token' })
+      expect(response.body).toEqual({ error: 'GitHub authentication failed' })
     })
 
     test('returns 403 when no permission to access repo', async () => {
@@ -157,7 +159,7 @@ describe('POST /deploy/upload', () => {
         .send({ repo: 'owner/repo', branch: 'main' })
 
       expect(response.status).toBe(404)
-      expect(response.body).toEqual({ error: 'Repository or workflow not found' })
+      expect(response.body).toEqual({ error: 'Repository, workflow, or app installation not found' })
     })
 
     test('returns 422 when branch ref is invalid', async () => {
