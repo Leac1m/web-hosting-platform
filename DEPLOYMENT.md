@@ -71,11 +71,65 @@ To test locally without pushing to GitHub:
 
 ```
 deployments/
-  owner-repo/           # Example: owner-repo
+  owner-repo/           # Simple approach (default)
     index.html
     css/
     js/
     ...
 ```
 
+OR with versioning enabled for zero-downtime swaps:
+
+```
+deployments/
+  owner-repo/
+    current -> symlink to releases/v1-abc123/
+    releases/
+      v1-abc123/        # Versioned release
+        index.html
+        css/
+        js/
+      v2-def456/        # Previous release (kept for rollback)
+      v3-ghi789/        # Newest release
+```
+
+### Simple Serving (Default)
+
 Access at: `http://localhost:3000/sites/owner-repo/`
+
+Files in `deployments/owner-repo/` are served directly. Each deployment overwrites previous files.
+
+### Versioned Serving (Optional - Zero-Downtime)
+
+Access at: `http://localhost:3000/sites/owner-repo/`
+
+- Each deployment creates a timestamped release: `v<timestamp>-<commit-short>/`
+- Symlink `current` atomically points to the latest version
+- In-flight requests continue reading old version until symlink updates
+- Rollback: simply update symlink to previous release
+- Cleanup: automatically keep N most recent versions (default: 5)
+
+To enable versioning in your code:
+
+```javascript
+import { createVersionedDeploymentPath, updateCurrentSymlink } from './services/deploymentManager.js'
+
+// In /deploy/upload endpoint:
+const { versionedPath, currentLink } = createVersionedDeploymentPath(
+  projectName,
+  commit
+)
+
+// Extract to versionedPath instead of projectName
+await tar.x({
+  file: req.file.path,
+  cwd: versionedPath
+})
+
+// Atomically update symlink
+updateCurrentSymlink(currentLink, versionedPath)
+
+// Optionally cleanup old releases
+import { cleanupOldReleases } from './services/deploymentManager.js'
+cleanupOldReleases(projectName, 5) // Keep 5 most recent
+```
