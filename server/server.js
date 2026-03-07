@@ -4,6 +4,7 @@ import fs from "fs"
 import path from "path"
 import * as tar from "tar"
 import { triggerBuild, GitHubError } from "./services/buildService.js"
+import { validateRepoName } from "./services/pathValidator.js"
 
 const app = express()
 
@@ -81,11 +82,16 @@ app.post("/deploy/upload", upload.single("artifact"), async (req, res) => {
     return res.status(400).json({ error: "Missing repo name" })
   }
 
+  const validation = validateRepoName(repo)
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error })
+  }
+
   if (!req.file) {
     return res.status(400).json({ error: "Missing artifact file" })
   }
 
-  const projectName = repo.replace("/", "-")
+  const projectName = validation.projectName
 
   const deployPath = path.join(
     process.cwd(),

@@ -238,4 +238,52 @@ describe('POST /deploy/upload', () => {
     expect(response.body).toEqual({ error: 'Missing artifact file' })
     expect(mockTarX).not.toHaveBeenCalled()
   })
+
+  test('returns 400 for directory traversal attempt (..)', async () => {
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', 'owner/../admin')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('Invalid repo name')
+    expect(mockTarX).not.toHaveBeenCalled()
+  })
+
+  test('returns 400 for absolute path attempt', async () => {
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', '/etc/passwd')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('Invalid repo name')
+    expect(mockTarX).not.toHaveBeenCalled()
+  })
+
+  test('returns 400 for repo without slash', async () => {
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', 'malformed-repo-name')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('Invalid repo name format')
+    expect(mockTarX).not.toHaveBeenCalled()
+  })
+
+  test('returns 400 for special characters in repo', async () => {
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', 'owner/repo@name')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toContain('Invalid repo name')
+    expect(mockTarX).not.toHaveBeenCalled()
+  })
 })
