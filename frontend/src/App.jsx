@@ -2,12 +2,32 @@ import { useEffect, useMemo, useState } from 'react'
 import { authApi, deployApi } from './services/api'
 import './App.css'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+
+const toProjectName = (repoName) => repoName.replace('/', '-')
+
+const toDeploymentUrl = (status) => {
+  const candidate = status?.hostingUrl || status?.url
+
+  if (!candidate) {
+    return null
+  }
+
+  if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+    return candidate
+  }
+
+  return `${API_BASE_URL}${candidate}`
+}
+
 function App() {
   const [isLoadingUser, setIsLoadingUser] = useState(true)
   const [user, setUser] = useState(null)
   const [repo, setRepo] = useState('')
   const [branch, setBranch] = useState('main')
+  const [hostingTarget, setHostingTarget] = useState('platform')
   const [activeProject, setActiveProject] = useState('')
+  const [activeProjectTarget, setActiveProjectTarget] = useState('platform')
   const [deployStatus, setDeployStatus] = useState(null)
   const [deployments, setDeployments] = useState([])
   const [isDeploying, setIsDeploying] = useState(false)
@@ -24,13 +44,16 @@ function App() {
     }
   }
 
-  const loadStatus = async (projectName) => {
+  const loadStatus = async (projectName, target = 'platform') => {
     if (!projectName) {
       return
     }
 
     try {
-      const response = await deployApi.getStatus(projectName)
+      const response =
+        target === 'github-pages'
+          ? await deployApi.getPagesStatus(projectName)
+          : await deployApi.getStatus(projectName)
       setDeployStatus(response.data)
     } catch {
       setDeployStatus(null)
@@ -79,14 +102,14 @@ function App() {
       return
     }
 
-    loadStatus(activeProject)
+    loadStatus(activeProject, activeProjectTarget)
 
     const timer = setInterval(() => {
-      loadStatus(activeProject)
+      loadStatus(activeProject, activeProjectTarget)
     }, 5000)
 
     return () => clearInterval(timer)
-  }, [activeProject])
+  }, [activeProject, activeProjectTarget])
 
   const handleLogout = async () => {
     try {
@@ -96,6 +119,7 @@ function App() {
       setDeployStatus(null)
       setDeployments([])
       setActiveProject('')
+      setActiveProjectTarget('platform')
     }
   }
 
@@ -106,11 +130,17 @@ function App() {
 
     try {
       const trimmedRepo = repo.trim()
-      await deployApi.trigger(trimmedRepo, branch.trim() || 'main')
+      const response = await deployApi.trigger(
+        trimmedRepo,
+        branch.trim() || 'main',
+        hostingTarget,
+      )
+      setDeployStatus(response.data)
 
-      const projectName = trimmedRepo.replace('/', '-')
+      const projectName = toProjectName(trimmedRepo)
       setActiveProject(projectName)
-      await loadStatus(projectName)
+      setActiveProjectTarget(hostingTarget)
+      await loadStatus(projectName, hostingTarget)
       await loadDeployments()
     } catch (requestError) {
       const errorMessage =
@@ -168,6 +198,17 @@ function App() {
             />
           </label>
 
+          <label>
+            Hosting Target
+            <select
+              value={hostingTarget}
+              onChange={(event) => setHostingTarget(event.target.value)}
+            >
+              <option value="platform">Platform</option>
+              <option value="github-pages">GitHub Pages</option>
+            </select>
+          </label>
+
           <button type="submit" disabled={isDeploying}>
             {isDeploying ? 'Deploying...' : 'Deploy'}
           </button>
@@ -185,15 +226,25 @@ function App() {
             <p>
               <strong>Status:</strong> {deployStatus.status}
             </p>
-            {deployStatus.url ? (
+            {deployStatus.hostingTarget ? (
+              <p>
+                <strong>Hosting Target:</strong> {deployStatus.hostingTarget}
+              </p>
+            ) : null}
+            {deployStatus.providerStatus ? (
+              <p>
+                <strong>Provider Status:</strong> {deployStatus.providerStatus}
+              </p>
+            ) : null}
+            {toDeploymentUrl(deployStatus) ? (
               <p>
                 <strong>URL:</strong>{' '}
                 <a
-                  href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}${deployStatus.url}`}
+                  href={toDeploymentUrl(deployStatus)}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {deployStatus.url}
+                  {toDeploymentUrl(deployStatus)}
                 </a>
               </p>
             ) : null}
@@ -218,10 +269,15 @@ function App() {
               <li
                 key={`${item.project}-${item.updatedAt}`}
                 className="list-item"
+                onClick={() => {
+                  setActiveProject(item.project)
+                  setActiveProjectTarget(item.hostingTarget || 'platform')
+                }}
               >
                 <div>
                   <strong>{item.project}</strong>
                   <p>{item.repo || 'unknown repo'}</p>
+                  <p>{item.hostingTarget || 'platform'}</p>
                 </div>
                 <span>{item.status}</span>
               </li>

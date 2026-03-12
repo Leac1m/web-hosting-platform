@@ -14,8 +14,10 @@ export const authApi = {
 }
 
 export const deployApi = {
-  trigger: (repo, branch) => api.post('/deploy', { repo, branch }),
+  trigger: (repo, branch, hostingTarget = 'platform') =>
+    api.post('/deploy', { repo, branch, hostingTarget }),
   getStatus: (project) => api.get(`/deploy/status/${project}`),
+  getPagesStatus: (project) => api.get(`/deploy/pages-status/${project}`),
   list: () => api.get('/deploy/list'),
 }
 

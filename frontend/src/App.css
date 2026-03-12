@@ -37,6 +37,14 @@ input {
   font-size: 14px;
 }
 
+select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  background: #fff;
+}
+
 button,
 .button {
   border: 1px solid #111827;
@@ -74,6 +82,7 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+  cursor: pointer;
 }
 
 .list-item p {
