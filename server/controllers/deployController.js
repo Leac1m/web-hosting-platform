@@ -14,6 +14,54 @@ import {
 
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 
+const pathExists = (targetPath) => {
+  try {
+    fs.accessSync(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const isDirectory = (targetPath) => {
+  try {
+    return fs.statSync(targetPath).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+const moveDirectoryContents = (sourceDir, targetDir) => {
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name)
+    const targetPath = path.join(targetDir, entry.name)
+
+    if (pathExists(targetPath)) {
+      fs.rmSync(targetPath, { recursive: true, force: true })
+    }
+
+    fs.renameSync(sourcePath, targetPath)
+  }
+}
+
+const normalizeDeployPath = (deployPath, projectName) => {
+  const distPath = path.join(deployPath, 'dist')
+  const distProjectPath = path.join(distPath, projectName)
+
+  if (isDirectory(distProjectPath)) {
+    moveDirectoryContents(distProjectPath, deployPath)
+    fs.rmSync(distPath, { recursive: true, force: true })
+    return
+  }
+
+  if (isDirectory(distPath)) {
+    moveDirectoryContents(distPath, deployPath)
+    fs.rmSync(distPath, { recursive: true, force: true })
+  }
+}
+
 export const getDeploymentStatus = (req, res) => {
   const project = req.params.project
   const status = getDeployStatus(project)
@@ -165,6 +213,8 @@ export const uploadArtifact = async (req, res) => {
       file: req.file.path,
       cwd: deployPath,
     })
+
+    normalizeDeployPath(deployPath, projectName)
 
     fs.unlinkSync(req.file.path)
 

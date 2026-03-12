@@ -1,5 +1,6 @@
 import request from 'supertest'
 import fs from 'fs'
+import path from 'path'
 import { jest } from '@jest/globals'
 
 const mockTarX = jest.fn()
@@ -242,6 +243,75 @@ describe('POST /deploy/upload', () => {
     })
   })
 
+  test('flattens dist/projectName artifact layout into deployment root', async () => {
+    mockTarX.mockResolvedValue(undefined)
+
+    const distPathSuffix = `${path.join('deployments', 'owner-repo', 'dist')}`
+    const distProjectPathSuffix = `${path.join('deployments', 'owner-repo', 'dist', 'owner-repo')}`
+
+    jest.spyOn(fs, 'statSync').mockImplementation((targetPath) => ({
+      isDirectory: () =>
+        targetPath.endsWith(distProjectPathSuffix) || targetPath.endsWith(distPathSuffix),
+    }))
+    jest.spyOn(fs, 'readdirSync').mockImplementation(() => [{ name: 'index.html' }])
+    jest.spyOn(fs, 'accessSync').mockImplementation(() => {
+      throw new Error('missing')
+    })
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation(() => undefined)
+    const rmSpy = jest.spyOn(fs, 'rmSync').mockImplementation(() => undefined)
+
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', 'owner/repo')
+      .field('commit', 'abc123')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(200)
+    expect(renameSpy).toHaveBeenCalledWith(
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'dist', 'owner-repo', 'index.html')),
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'index.html')),
+    )
+    expect(rmSpy).toHaveBeenCalledWith(
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'dist')),
+      { recursive: true, force: true },
+    )
+  })
+
+  test('flattens dist-only artifact layout into deployment root', async () => {
+    mockTarX.mockResolvedValue(undefined)
+
+    const distPathSuffix = `${path.join('deployments', 'owner-repo', 'dist')}`
+    const distProjectPathSuffix = `${path.join('deployments', 'owner-repo', 'dist', 'owner-repo')}`
+
+    jest.spyOn(fs, 'statSync').mockImplementation((targetPath) => ({
+      isDirectory: () => targetPath.endsWith(distPathSuffix) && !targetPath.endsWith(distProjectPathSuffix),
+    }))
+    jest.spyOn(fs, 'readdirSync').mockImplementation(() => [{ name: 'index.html' }])
+    jest.spyOn(fs, 'accessSync').mockImplementation(() => {
+      throw new Error('missing')
+    })
+    const renameSpy = jest.spyOn(fs, 'renameSync').mockImplementation(() => undefined)
+    const rmSpy = jest.spyOn(fs, 'rmSync').mockImplementation(() => undefined)
+
+    const response = await request(app)
+      .post('/deploy/upload')
+      .set('Authorization', 'Bearer test-secret')
+      .field('repo', 'owner/repo')
+      .field('commit', 'abc123')
+      .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
+
+    expect(response.status).toBe(200)
+    expect(renameSpy).toHaveBeenCalledWith(
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'dist', 'index.html')),
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'index.html')),
+    )
+    expect(rmSpy).toHaveBeenCalledWith(
+      expect.stringContaining(path.join('deployments', 'owner-repo', 'dist')),
+      { recursive: true, force: true },
+    )
+  })
+
   test('returns 500 when extraction fails', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined)
     mockTarX.mockRejectedValue(new Error('extract failed'))
@@ -314,5 +384,36 @@ describe('POST /deploy/upload', () => {
     expect(response.status).toBe(400)
     expect(response.body.error).toContain('Invalid repo name')
     expect(mockTarX).not.toHaveBeenCalled()
+  })
+
+  test('serves /assets files from project inferred by /sites referer', async () => {
+    mockTarX.mockResolvedValue(undefined)
+
+    const assetContent = 'body { color: red; }'
+    const assetDir = path.join(process.cwd(), 'deployments', 'owner-repo', 'assets')
+    const assetPath = path.join(assetDir, 'index.css')
+
+    await fs.promises.mkdir(assetDir, { recursive: true })
+    await fs.promises.writeFile(assetPath, assetContent)
+
+    const response = await request(app)
+      .get('/assets/index.css')
+      .set('Referer', 'http://localhost:3000/sites/owner-repo/')
+
+    expect(response.status).toBe(200)
+    expect(response.text).toBe(assetContent)
+
+    await fs.promises.rm(path.join(process.cwd(), 'deployments', 'owner-repo'), {
+      recursive: true,
+      force: true,
+    })
+  })
+
+  test('does not serve /assets files without /sites referer context', async () => {
+    mockTarX.mockResolvedValue(undefined)
+
+    const response = await request(app).get('/assets/index.css')
+
+    expect(response.status).toBe(404)
   })
 })
