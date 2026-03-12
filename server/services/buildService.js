@@ -1,6 +1,11 @@
 import axios from "axios"
 import { triggerWorkflowWithApp } from "./githubAppAuth.js"
 
+const WORKFLOWS_BY_TARGET = {
+  platform: 'deploy.yml',
+  'github-pages': 'deploy-pages.yml',
+}
+
 export class GitHubError extends Error {
   constructor(message, statusCode, githubError) {
     super(message)
@@ -51,28 +56,20 @@ function mapGitHubError(err) {
   return err
 }
 
-async function triggerWithToken(owner, repoName, branch, token) {
-  await axios.post(
-    `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/deploy.yml/dispatches`,
-    {
-      ref: branch
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json"
-      }
-    }
-  )
+function resolveWorkflowId(hostingTarget) {
+  return WORKFLOWS_BY_TARGET[hostingTarget] || WORKFLOWS_BY_TARGET.platform
 }
 
-export async function triggerBuild(repo, branch, token = null) {
+export async function triggerBuild(repo, branch, token = null, options = {}) {
+
+  const hostingTarget = options.hostingTarget || 'platform'
+  const workflowId = resolveWorkflowId(hostingTarget)
 
   const [owner, repoName] = repo.split("/")
 
   try {
     if (hasGitHubAppConfig()) {
-      await triggerWorkflowWithApp(owner, repoName, branch)
+      await triggerWorkflowWithApp(owner, repoName, branch, workflowId)
       return
     }
 
@@ -84,7 +81,18 @@ export async function triggerBuild(repo, branch, token = null) {
       )
     }
 
-    await triggerWithToken(owner, repoName, branch, token)
+    await axios.post(
+      `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/${workflowId}/dispatches`,
+      {
+        ref: branch
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json"
+        }
+      }
+    )
   } catch (err) {
     if (err instanceof GitHubError) {
       throw err

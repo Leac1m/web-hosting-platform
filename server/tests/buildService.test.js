@@ -49,7 +49,50 @@ describe('buildService', () => {
 
     await triggerBuild('owner/repo', 'main')
 
-    expect(mockTriggerWorkflowWithApp).toHaveBeenCalledWith('owner', 'repo', 'main')
+    expect(mockTriggerWorkflowWithApp).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      'main',
+      'deploy.yml'
+    )
+    expect(mockAxios.post).not.toHaveBeenCalled()
+  })
+
+  test('uses deploy-pages workflow with token fallback for github-pages target', async () => {
+    delete process.env.GITHUB_APP_ID
+    mockAxios.post.mockResolvedValue({ status: 204 })
+
+    await triggerBuild('owner/repo', 'main', 'gh-token', {
+      hostingTarget: 'github-pages',
+    })
+
+    expect(mockAxios.post).toHaveBeenCalledWith(
+      'https://api.github.com/repos/owner/repo/actions/workflows/deploy-pages.yml/dispatches',
+      { ref: 'main' },
+      {
+        headers: {
+          Authorization: 'Bearer gh-token',
+          Accept: 'application/vnd.github+json',
+        },
+      }
+    )
+    expect(mockTriggerWorkflowWithApp).not.toHaveBeenCalled()
+  })
+
+  test('uses deploy-pages workflow with GitHub App for github-pages target', async () => {
+    process.env.GITHUB_APP_ID = '123456'
+    mockTriggerWorkflowWithApp.mockResolvedValue(undefined)
+
+    await triggerBuild('owner/repo', 'main', null, {
+      hostingTarget: 'github-pages',
+    })
+
+    expect(mockTriggerWorkflowWithApp).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      'main',
+      'deploy-pages.yml'
+    )
     expect(mockAxios.post).not.toHaveBeenCalled()
   })
 

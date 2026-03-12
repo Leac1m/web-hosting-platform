@@ -65,7 +65,12 @@ export async function getInstallationToken(owner, repo) {
   return data.token
 }
 
-export async function triggerWorkflowWithApp(owner, repo, branch) {
+export async function triggerWorkflowWithApp(
+  owner,
+  repo,
+  branch,
+  workflowId = 'deploy.yml',
+) {
   const installationToken = await getInstallationToken(owner, repo)
 
   const installationOctokit = new Octokit({
@@ -75,7 +80,7 @@ export async function triggerWorkflowWithApp(owner, repo, branch) {
   await installationOctokit.rest.actions.createWorkflowDispatch({
     owner,
     repo,
-    workflow_id: 'deploy.yml',
+    workflow_id: workflowId,
     ref: branch,
   })
 }

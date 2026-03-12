@@ -59,6 +59,7 @@ describe('Deploy lifecycle smoke test', () => {
       status: 'queued',
       repo: 'owner/repo',
       branch: 'main',
+      hostingTarget: 'platform',
     })
 
     const queuedStatusResponse = await request(app).get('/deploy/status/owner-repo')
@@ -94,7 +95,12 @@ describe('Deploy lifecycle smoke test', () => {
       url: '/sites/owner-repo/',
     })
 
-    expect(mockTriggerBuild).toHaveBeenCalledWith('owner/repo', 'main', 'gh-token')
+    expect(mockTriggerBuild).toHaveBeenCalledWith(
+      'owner/repo',
+      'main',
+      'gh-token',
+      { hostingTarget: 'platform' }
+    )
     expect(mockTarX).toHaveBeenCalledTimes(1)
   })
 })

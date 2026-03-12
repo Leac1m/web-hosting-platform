@@ -30,6 +30,7 @@ describe('POST /deploy/upload', () => {
     process.env.DEPLOY_SECRET = 'test-secret'
     process.env.GITHUB_TOKEN = 'gh-token'
     delete process.env.GITHUB_APP_ID
+    delete process.env.ENABLE_GITHUB_PAGES
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
@@ -88,11 +89,13 @@ describe('POST /deploy/upload', () => {
         status: 'queued',
         repo: 'owner/repo',
         branch: 'main',
+        hostingTarget: 'platform',
       })
       expect(mockTriggerBuild).toHaveBeenCalledWith(
         'owner/repo',
         'main',
         'gh-token',
+        { hostingTarget: 'platform' },
       )
 
       const statusResponse = await request(app).get('/deploy/status/owner-repo')
@@ -116,6 +119,78 @@ describe('POST /deploy/upload', () => {
 
       expect(response.status).toBe(500)
       expect(response.body).toEqual({ error: 'Failed to trigger deployment' })
+    })
+
+    test('returns 400 for unsupported hostingTarget', async () => {
+      const response = await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'unknown-target',
+        })
+
+      expect(response.status).toBe(400)
+      expect(response.body).toEqual({
+        error: 'Invalid hostingTarget. Allowed values: platform, github-pages',
+      })
+      expect(mockTriggerBuild).not.toHaveBeenCalled()
+    })
+
+    test('returns 403 when github-pages target is disabled', async () => {
+      const response = await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      expect(response.status).toBe(403)
+      expect(response.body).toEqual({
+        error: 'GitHub Pages deployments are disabled',
+      })
+      expect(mockTriggerBuild).not.toHaveBeenCalled()
+    })
+
+    test('returns 202 and computes pages url for github-pages target', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      expect(response.status).toBe(202)
+      expect(response.body).toEqual({
+        status: 'queued',
+        repo: 'owner/repo',
+        branch: 'main',
+        hostingTarget: 'github-pages',
+        hostingUrl: 'https://owner.github.io/repo/',
+      })
+      expect(mockTriggerBuild).toHaveBeenCalledWith(
+        'owner/repo',
+        'main',
+        'gh-token',
+        { hostingTarget: 'github-pages' },
+      )
+
+      const statusResponse = await request(app).get('/deploy/pages-status/owner-repo')
+
+      expect(statusResponse.status).toBe(200)
+      expect(statusResponse.body).toMatchObject({
+        project: 'owner-repo',
+        repo: 'owner/repo',
+        branch: 'main',
+        hostingTarget: 'github-pages',
+        providerStatus: 'queued',
+        hostingUrl: 'https://owner.github.io/repo/',
+      })
     })
 
     test('returns 401 when GitHub token is invalid', async () => {

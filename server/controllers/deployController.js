@@ -13,6 +13,23 @@ import {
 } from '../services/deployStatusStore.js'
 
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
+const ALLOWED_HOSTING_TARGETS = new Set(['platform', 'github-pages'])
+
+const isGitHubPagesEnabled = () => process.env.ENABLE_GITHUB_PAGES === 'true'
+
+const getGitHubPagesUrl = (repo) => {
+  const [owner, repoName] = repo.split('/')
+
+  if (!owner || !repoName) {
+    return null
+  }
+
+  if (repoName.toLowerCase() === `${owner.toLowerCase()}.github.io`) {
+    return `https://${owner}.github.io/`
+  }
+
+  return `https://${owner}.github.io/${repoName}/`
+}
 
 const pathExists = (targetPath) => {
   try {
@@ -88,9 +105,36 @@ export const listDeployments = (req, res) => {
   return res.json(ownedDeployments)
 }
 
+export const getPagesDeploymentStatus = (req, res) => {
+  const project = req.params.project
+  const status = getDeployStatus(project)
+
+  if (!status) {
+    return res.status(404).json({ error: 'Deployment status not found' })
+  }
+
+  if (status.hostingTarget !== 'github-pages') {
+    return res
+      .status(404)
+      .json({ error: 'No GitHub Pages deployment status for project' })
+  }
+
+  return res.json({
+    project: status.project,
+    repo: status.repo,
+    branch: status.branch,
+    hostingTarget: status.hostingTarget,
+    providerStatus: status.providerStatus || status.status,
+    hostingUrl: status.hostingUrl,
+    status: status.status,
+    updatedAt: status.updatedAt,
+  })
+}
+
 export const triggerDeployment = async (req, res) => {
   const repo = req.body?.repo
   const branch = req.body?.branch || 'main'
+  const hostingTarget = req.body?.hostingTarget || 'platform'
   const hasGitHubAppConfig = Boolean(process.env.GITHUB_APP_ID)
   const githubToken = process.env.GITHUB_TOKEN
 
@@ -104,13 +148,32 @@ export const triggerDeployment = async (req, res) => {
       .json({ error: 'Missing GitHub authentication configuration' })
   }
 
-  const projectName = getProjectNameFromRepo(repo)
+  if (!ALLOWED_HOSTING_TARGETS.has(hostingTarget)) {
+    return res.status(400).json({
+      error: 'Invalid hostingTarget. Allowed values: platform, github-pages',
+    })
+  }
 
-  logEvent('deploy_requested', { repo, branch, project: projectName })
+  if (hostingTarget === 'github-pages' && !isGitHubPagesEnabled()) {
+    return res.status(403).json({
+      error: 'GitHub Pages deployments are disabled',
+    })
+  }
+
+  const projectName = getProjectNameFromRepo(repo)
+  const hostingUrl =
+    hostingTarget === 'github-pages' ? getGitHubPagesUrl(repo) : undefined
+
+  logEvent('deploy_requested', {
+    repo,
+    branch,
+    project: projectName,
+    hostingTarget,
+  })
 
   try {
     // Update repository secrets if using GitHub App
-    if (hasGitHubAppConfig) {
+    if (hasGitHubAppConfig && hostingTarget === 'platform') {
       const [owner, repoName] = repo.split('/')
       const deployBackendUrl = process.env.DEPLOY_BACKEND_URL || 'http://localhost:3000'
       const deploySecret = process.env.DEPLOY_SECRET
@@ -124,28 +187,50 @@ export const triggerDeployment = async (req, res) => {
         DEPLOY_SECRET: deploySecret,
       })
 
-      logEvent('secrets_updated', { repo, project: projectName })
+      logEvent('secrets_updated', {
+        repo,
+        project: projectName,
+        hostingTarget,
+      })
     }
 
-    await triggerBuild(repo, branch, githubToken)
+    await triggerBuild(repo, branch, githubToken, { hostingTarget })
 
-    setDeployStatus(projectName, 'queued', { repo, branch })
-    logEvent('deploy_queued', { repo, branch, project: projectName })
+    setDeployStatus(projectName, 'queued', {
+      repo,
+      branch,
+      hostingTarget,
+      hostingUrl,
+      providerStatus: 'queued',
+    })
+    logEvent('deploy_queued', {
+      repo,
+      branch,
+      project: projectName,
+      hostingTarget,
+      hostingUrl,
+    })
 
     return res.status(202).json({
       status: 'queued',
       repo,
       branch,
+      hostingTarget,
+      ...(hostingUrl ? { hostingUrl } : {}),
     })
   } catch (err) {
     logError('deploy_trigger_failed', err, {
       repo,
       branch,
       project: projectName,
+      hostingTarget,
     })
     setDeployStatus(projectName, 'failed', {
       repo,
       branch,
+      hostingTarget,
+      providerStatus: 'failed',
+      hostingUrl,
       reason: err?.message || 'Unknown error',
     })
 
@@ -202,7 +287,12 @@ export const uploadArtifact = async (req, res) => {
   const projectName = validation.projectName
 
   logEvent('artifact_received', { project: projectName, repo, commit })
-  setDeployStatus(projectName, 'upload_received', { repo, commit })
+  setDeployStatus(projectName, 'upload_received', {
+    repo,
+    commit,
+    hostingTarget: 'platform',
+    providerStatus: 'building',
+  })
 
   const deployPath = path.join(process.cwd(), 'deployments', projectName)
 
@@ -221,6 +311,9 @@ export const uploadArtifact = async (req, res) => {
     setDeployStatus(projectName, 'live', {
       repo,
       commit,
+      hostingTarget: 'platform',
+      providerStatus: 'live',
+      hostingUrl: `/sites/${projectName}/`,
       url: `/sites/${projectName}/`,
     })
     logEvent('deploy_live', {

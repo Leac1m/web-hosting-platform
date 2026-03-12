@@ -24,6 +24,14 @@ Configure the following secrets in your GitHub repository for automated deployme
 5. **Backend extracts and serves** → artifact is extracted to `deployments/<owner-repo>/`
 6. **Site goes live** → accessible at `/sites/<owner-repo>`
 
+### Alternative Target: GitHub Pages
+
+The deployment trigger endpoint also supports publishing to GitHub Pages.
+
+1. **User triggers deploy** → calls `POST /deploy` with `hostingTarget: github-pages`
+2. **Backend dispatches Pages workflow** → triggers `deploy-pages.yml` on the target repository
+3. **GitHub Pages publishes site** → served from `https://<owner>.github.io/<repo>/`
+
 ## Setup Instructions
 
 ### 0. Configure GitHub App (Required)
@@ -37,6 +45,9 @@ GITHUB_APP_ID=<app-id>
 GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem>
 # or
 GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+
+# Optional feature flag for GitHub Pages deployment target
+ENABLE_GITHUB_PAGES=true
 
 # Phase 2 frontend auth URLs
 BACKEND_URL=http://localhost:3000
@@ -89,6 +100,25 @@ To test locally without pushing to GitHub:
      -H "Content-Type: application/json" \
      -d '{"repo": "owner/repo", "branch": "main"}'
    ```
+
+3. Call the `/deploy` endpoint for GitHub Pages:
+  ```bash
+  curl -X POST http://localhost:3000/deploy \
+    -H "Content-Type: application/json" \
+    -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
+  ```
+
+4. Check Pages-specific status:
+  ```bash
+  curl http://localhost:3000/deploy/pages-status/owner-repo
+  ```
+
+## Workflow Templates
+
+Repository workflow templates are available in:
+
+- `workflows/deploy.yml` for platform artifact upload flow
+- `workflows/deploy-pages.yml` for GitHub Pages publishing flow
 
 ## Directory Structure After Deployment
 

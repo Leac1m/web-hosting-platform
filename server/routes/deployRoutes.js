@@ -4,6 +4,7 @@ import { mkdir } from "fs/promises"
 import { requireAuth } from "../controllers/authController.js"
 import {
   getDeploymentStatus,
+  getPagesDeploymentStatus,
   listDeployments,
   triggerDeployment,
   uploadArtifact
@@ -26,6 +27,9 @@ router.get("/status/:project", requireAuth, getDeploymentStatus)
 
 // GET /deploy/list
 router.get("/list", requireAuth, listDeployments)
+
+// GET /deploy/pages-status/:project
+router.get("/pages-status/:project", requireAuth, getPagesDeploymentStatus)
 
 // POST /deploy
 router.post("/", requireAuth, triggerDeployment)
