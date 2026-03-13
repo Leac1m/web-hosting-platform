@@ -110,7 +110,8 @@ function App() {
       await loadDeployments()
     } catch (requestError) {
       const errorMessage =
-        requestError?.response?.data?.error || 'Failed to sync GitHub Pages configuration'
+        requestError?.response?.data?.error ||
+        'Failed to sync GitHub Pages configuration'
       setError(errorMessage)
     } finally {
       setIsSyncingPagesConfig(false)
@@ -301,7 +302,8 @@ function App() {
             ) : null}
             {deployStatus.httpsCertificateState ? (
               <p>
-                <strong>HTTPS Certificate:</strong> {deployStatus.httpsCertificateState}
+                <strong>HTTPS Certificate:</strong>{' '}
+                {deployStatus.httpsCertificateState}
               </p>
             ) : null}
             {activeProject && activeProjectTarget === 'github-pages' ? (
@@ -362,10 +364,14 @@ function App() {
                   {item.hostingTarget === 'github-pages' ? (
                     <div className="list-meta-row">
                       <span className="list-meta-pill">
-                        Source: {pagesConfigByProject[item.project]?.pagesSource || 'unknown'}
+                        Source:{' '}
+                        {pagesConfigByProject[item.project]?.pagesSource ||
+                          'unknown'}
                       </span>
                       <span className="list-meta-pill">
-                        HTTPS: {pagesConfigByProject[item.project]?.httpsCertificateState || 'unknown'}
+                        HTTPS:{' '}
+                        {pagesConfigByProject[item.project]
+                          ?.httpsCertificateState || 'unknown'}
                       </span>
                     </div>
                   ) : null}
