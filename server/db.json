@@ -1,0 +1,15 @@
+{
+  "deployStatuses": {
+    "leac1m-react-ci-demo": {
+      "project": "leac1m-react-ci-demo",
+      "status": "queued",
+      "updatedAt": "2026-03-13T02:38:08.311Z",
+      "repo": "leac1m/react-ci-demo",
+      "branch": "main",
+      "hostingTarget": "github-pages",
+      "hostingUrl": "/sites/leac1m-react-ci-demo/",
+      "providerUrl": "https://leac1m.github.io/react-ci-demo/",
+      "providerStatus": "queued"
+    }
+  }
+}

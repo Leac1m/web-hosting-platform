@@ -31,6 +31,50 @@ const getGitHubPagesUrl = (repo) => {
   return `https://${owner}.github.io/${repoName}/`
 }
 
+const getRelayHostingUrl = (projectName) => `/sites/${projectName}/`
+const HEALTHCHECK_TIMEOUT_MS = 5000
+
+const probeProviderAvailability = async (providerUrl) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), HEALTHCHECK_TIMEOUT_MS)
+
+  try {
+    const headResponse = await fetch(providerUrl, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+
+    if (headResponse.status !== 405) {
+      return {
+        available: headResponse.ok,
+        upstreamStatus: headResponse.status,
+      }
+    }
+
+    const getResponse = await fetch(providerUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+
+    return {
+      available: getResponse.ok,
+      upstreamStatus: getResponse.status,
+    }
+  } catch (error) {
+    const reason = error?.name === 'AbortError' ? 'Health check timeout' : error?.message
+
+    return {
+      available: false,
+      upstreamStatus: null,
+      reason: reason || 'Failed to reach provider',
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 const pathExists = (targetPath) => {
   try {
     fs.accessSync(targetPath)
@@ -79,6 +123,16 @@ const normalizeDeployPath = (deployPath, projectName) => {
   }
 }
 
+const filterStatusesForUser = (statuses, username) => {
+  if (!username) {
+    return statuses
+  }
+
+  return statuses.filter((item) =>
+    item.repo?.toLowerCase().startsWith(`${username.toLowerCase()}/`)
+  )
+}
+
 export const getDeploymentStatus = (req, res) => {
   const project = req.params.project
   const status = getDeployStatus(project)
@@ -94,15 +148,27 @@ export const listDeployments = (req, res) => {
   const username = req.user?.login
   const allStatuses = getAllDeployStatuses()
 
-  if (!username) {
-    return res.json(allStatuses)
-  }
-
-  const ownedDeployments = allStatuses.filter((item) =>
-    item.repo?.toLowerCase().startsWith(`${username.toLowerCase()}/`)
-  )
+  const ownedDeployments = filterStatusesForUser(allStatuses, username)
 
   return res.json(ownedDeployments)
+}
+
+export const listRouteMappings = (req, res) => {
+  const username = req.user?.login
+  const allStatuses = getAllDeployStatuses()
+  const visibleStatuses = filterStatusesForUser(allStatuses, username)
+
+  const mappings = visibleStatuses.map((status) => ({
+    project: status.project,
+    repo: status.repo || null,
+    hostingTarget: status.hostingTarget || 'platform',
+    hostingUrl: status.hostingUrl || `/sites/${status.project}/`,
+    providerUrl: status.providerUrl || null,
+    status: status.status,
+    updatedAt: status.updatedAt,
+  }))
+
+  return res.json(mappings)
 }
 
 export const getPagesDeploymentStatus = (req, res) => {
@@ -126,9 +192,50 @@ export const getPagesDeploymentStatus = (req, res) => {
     hostingTarget: status.hostingTarget,
     providerStatus: status.providerStatus || status.status,
     hostingUrl: status.hostingUrl,
+    providerUrl: status.providerUrl,
     status: status.status,
     updatedAt: status.updatedAt,
   })
+}
+
+export const getPagesProviderHealth = async (req, res) => {
+  const project = req.params.project
+  const status = getDeployStatus(project)
+
+  if (!status) {
+    return res.status(404).json({ error: 'Deployment status not found' })
+  }
+
+  if (status.hostingTarget !== 'github-pages') {
+    return res
+      .status(404)
+      .json({ error: 'No GitHub Pages deployment status for project' })
+  }
+
+  const providerUrl = status.providerUrl || getGitHubPagesUrl(status.repo)
+
+  if (!providerUrl) {
+    return res.status(422).json({ error: 'Unable to resolve GitHub Pages provider URL' })
+  }
+
+  const result = await probeProviderAvailability(providerUrl)
+  const payload = {
+    project: status.project,
+    repo: status.repo,
+    hostingTarget: status.hostingTarget,
+    hostingUrl: status.hostingUrl,
+    providerUrl,
+    available: result.available,
+    upstreamStatus: result.upstreamStatus,
+    checkedAt: new Date().toISOString(),
+    ...(result.reason ? { reason: result.reason } : {}),
+  }
+
+  if (!result.available) {
+    return res.status(503).json(payload)
+  }
+
+  return res.json(payload)
 }
 
 export const triggerDeployment = async (req, res) => {
@@ -161,8 +268,12 @@ export const triggerDeployment = async (req, res) => {
   }
 
   const projectName = getProjectNameFromRepo(repo)
-  const hostingUrl =
+  const providerUrl =
     hostingTarget === 'github-pages' ? getGitHubPagesUrl(repo) : undefined
+  const hostingUrl =
+    hostingTarget === 'github-pages'
+      ? getRelayHostingUrl(projectName)
+      : undefined
 
   logEvent('deploy_requested', {
     repo,
@@ -201,6 +312,7 @@ export const triggerDeployment = async (req, res) => {
       branch,
       hostingTarget,
       hostingUrl,
+      providerUrl,
       providerStatus: 'queued',
     })
     logEvent('deploy_queued', {
@@ -209,6 +321,7 @@ export const triggerDeployment = async (req, res) => {
       project: projectName,
       hostingTarget,
       hostingUrl,
+      providerUrl,
     })
 
     return res.status(202).json({
@@ -217,6 +330,7 @@ export const triggerDeployment = async (req, res) => {
       branch,
       hostingTarget,
       ...(hostingUrl ? { hostingUrl } : {}),
+      ...(providerUrl ? { providerUrl } : {}),
     })
   } catch (err) {
     logError('deploy_trigger_failed', err, {
@@ -231,6 +345,7 @@ export const triggerDeployment = async (req, res) => {
       hostingTarget,
       providerStatus: 'failed',
       hostingUrl,
+      providerUrl,
       reason: err?.message || 'Unknown error',
     })
 

@@ -4,7 +4,9 @@ import { mkdir } from "fs/promises"
 import { requireAuth } from "../controllers/authController.js"
 import {
   getDeploymentStatus,
+  getPagesProviderHealth,
   getPagesDeploymentStatus,
+  listRouteMappings,
   listDeployments,
   triggerDeployment,
   uploadArtifact
@@ -28,8 +30,14 @@ router.get("/status/:project", requireAuth, getDeploymentStatus)
 // GET /deploy/list
 router.get("/list", requireAuth, listDeployments)
 
+// GET /deploy/routes
+router.get("/routes", requireAuth, listRouteMappings)
+
 // GET /deploy/pages-status/:project
 router.get("/pages-status/:project", requireAuth, getPagesDeploymentStatus)
+
+// GET /deploy/pages-health/:project
+router.get("/pages-health/:project", requireAuth, getPagesProviderHealth)
 
 // POST /deploy
 router.post("/", requireAuth, triggerDeployment)

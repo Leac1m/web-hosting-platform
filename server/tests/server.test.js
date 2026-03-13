@@ -5,6 +5,8 @@ import { jest } from '@jest/globals'
 
 const mockTarX = jest.fn()
 const mockTriggerBuild = jest.fn()
+const mockFetch = jest.fn()
+const originalFetch = global.fetch
 
 jest.unstable_mockModule('tar', () => ({
   x: mockTarX,
@@ -34,6 +36,8 @@ describe('POST /deploy/upload', () => {
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
+    mockFetch.mockReset()
+    global.fetch = mockFetch
 
     jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
     jest.spyOn(fs, 'unlinkSync').mockImplementation(() => undefined)
@@ -44,6 +48,7 @@ describe('POST /deploy/upload', () => {
 
   afterEach(() => {
     jest.restoreAllMocks()
+    global.fetch = originalFetch
   })
 
   describe('POST /deploy', () => {
@@ -171,7 +176,8 @@ describe('POST /deploy/upload', () => {
         repo: 'owner/repo',
         branch: 'main',
         hostingTarget: 'github-pages',
-        hostingUrl: 'https://owner.github.io/repo/',
+        hostingUrl: '/sites/owner-repo/',
+        providerUrl: 'https://owner.github.io/repo/',
       })
       expect(mockTriggerBuild).toHaveBeenCalledWith(
         'owner/repo',
@@ -189,8 +195,165 @@ describe('POST /deploy/upload', () => {
         branch: 'main',
         hostingTarget: 'github-pages',
         providerStatus: 'queued',
-        hostingUrl: 'https://owner.github.io/repo/',
+        hostingUrl: '/sites/owner-repo/',
+        providerUrl: 'https://owner.github.io/repo/',
       })
+    })
+
+    test('returns pages provider health when upstream is reachable', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      mockFetch.mockResolvedValue(
+        new Response('', {
+          status: 200,
+        }),
+      )
+
+      const response = await request(app).get('/deploy/pages-health/owner-repo')
+
+      expect(response.status).toBe(200)
+      expect(response.body).toMatchObject({
+        project: 'owner-repo',
+        hostingTarget: 'github-pages',
+        hostingUrl: '/sites/owner-repo/',
+        providerUrl: 'https://owner.github.io/repo/',
+        available: true,
+        upstreamStatus: 200,
+      })
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://owner.github.io/repo/',
+        expect.objectContaining({ method: 'HEAD' }),
+      )
+    })
+
+    test('returns 503 pages provider health when upstream is unreachable', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      mockFetch.mockRejectedValue(new Error('network down'))
+
+      const response = await request(app).get('/deploy/pages-health/owner-repo')
+
+      expect(response.status).toBe(503)
+      expect(response.body).toMatchObject({
+        project: 'owner-repo',
+        available: false,
+        upstreamStatus: null,
+        reason: 'network down',
+      })
+    })
+
+    test('returns compact route mappings for visible deployments', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'test-user/repo-platform',
+          branch: 'main',
+          hostingTarget: 'platform',
+        })
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'test-user/repo-pages',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      const response = await request(app).get('/deploy/routes')
+
+      expect(response.status).toBe(200)
+      expect(response.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            project: 'test-user-repo-platform',
+            repo: 'test-user/repo-platform',
+            hostingTarget: 'platform',
+            hostingUrl: '/sites/test-user-repo-platform/',
+            providerUrl: null,
+          }),
+          expect.objectContaining({
+            project: 'test-user-repo-pages',
+            repo: 'test-user/repo-pages',
+            hostingTarget: 'github-pages',
+            hostingUrl: '/sites/test-user-repo-pages/',
+            providerUrl: 'https://test-user.github.io/repo-pages/',
+          }),
+        ]),
+      )
+    })
+
+    test('returns 404 pages provider health for non-pages deployments', async () => {
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'platform',
+        })
+
+      const response = await request(app).get('/deploy/pages-health/owner-repo')
+
+      expect(response.status).toBe(404)
+      expect(response.body).toEqual({
+        error: 'No GitHub Pages deployment status for project',
+      })
+    })
+
+    test('relays github-pages site via /sites/:project without mutating html', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      mockTriggerBuild.mockResolvedValue(undefined)
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      mockFetch.mockResolvedValue(
+        new Response(
+          '<!doctype html><html><head></head><body><script src="/assets/app.js"></script></body></html>',
+          {
+            status: 200,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          },
+        ),
+      )
+
+      const response = await request(app).get('/sites/owner-repo/')
+
+      expect(response.status).toBe(200)
+      expect(response.text).toBe(
+        '<!doctype html><html><head></head><body><script src="/assets/app.js"></script></body></html>',
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        new URL('https://owner.github.io/repo/'),
+        expect.objectContaining({ method: 'GET' }),
+      )
     })
 
     test('returns 401 when GitHub token is invalid', async () => {
@@ -482,6 +645,37 @@ describe('POST /deploy/upload', () => {
       recursive: true,
       force: true,
     })
+  })
+
+  test('relays root /assets request to github-pages site using /sites referer context', async () => {
+    process.env.ENABLE_GITHUB_PAGES = 'true'
+    mockTriggerBuild.mockResolvedValue(undefined)
+
+    await request(app)
+      .post('/deploy')
+      .send({
+        repo: 'owner/repo',
+        branch: 'main',
+        hostingTarget: 'github-pages',
+      })
+
+    mockFetch.mockResolvedValue(
+      new Response('body { color: blue; }', {
+        status: 200,
+        headers: { 'content-type': 'text/css' },
+      }),
+    )
+
+    const response = await request(app)
+      .get('/assets/index.css')
+      .set('Referer', 'http://localhost:3000/sites/owner-repo/')
+
+    expect(response.status).toBe(200)
+    expect(response.text).toContain('color: blue')
+    expect(mockFetch).toHaveBeenCalledWith(
+      new URL('https://owner.github.io/repo/assets/index.css'),
+      expect.objectContaining({ method: 'GET' }),
+    )
   })
 
   test('does not serve /assets files without /sites referer context', async () => {

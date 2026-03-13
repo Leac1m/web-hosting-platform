@@ -30,7 +30,15 @@ The deployment trigger endpoint also supports publishing to GitHub Pages.
 
 1. **User triggers deploy** → calls `POST /deploy` with `hostingTarget: github-pages`
 2. **Backend dispatches Pages workflow** → triggers `deploy-pages.yml` on the target repository
-3. **GitHub Pages publishes site** → served from `https://<owner>.github.io/<repo>/`
+3. **GitHub Pages publishes site** → provider URL is `https://<owner>.github.io/<repo>/`
+4. **Backend relays the site** → served from `/sites/<owner-repo>/`
+
+### URL Semantics for GitHub Pages Deployments
+
+- `hostingUrl`: Backend URL for consumers and UI (for example `/sites/owner-repo/`)
+- `providerUrl`: Upstream GitHub Pages URL (for example `https://owner.github.io/repo/`)
+
+The backend relay keeps requests under the project path and mitigates absolute-root asset and fetch requests by resolving them through the selected project context.
 
 ## Setup Instructions
 
@@ -111,6 +119,40 @@ To test locally without pushing to GitHub:
 4. Check Pages-specific status:
   ```bash
   curl http://localhost:3000/deploy/pages-status/owner-repo
+  ```
+
+5. Check Pages upstream availability:
+  ```bash
+  curl http://localhost:3000/deploy/pages-health/owner-repo
+  ```
+
+  Sample healthy response:
+  ```json
+  {
+    "project": "owner-repo",
+    "repo": "owner/repo",
+    "hostingTarget": "github-pages",
+    "hostingUrl": "/sites/owner-repo/",
+    "providerUrl": "https://owner.github.io/repo/",
+    "available": true,
+    "upstreamStatus": 200,
+    "checkedAt": "2026-03-13T00:00:00.000Z"
+  }
+  ```
+
+  Sample unavailable response (HTTP 503):
+  ```json
+  {
+    "project": "owner-repo",
+    "repo": "owner/repo",
+    "hostingTarget": "github-pages",
+    "hostingUrl": "/sites/owner-repo/",
+    "providerUrl": "https://owner.github.io/repo/",
+    "available": false,
+    "upstreamStatus": null,
+    "reason": "Failed to reach provider",
+    "checkedAt": "2026-03-13T00:00:00.000Z"
+  }
   ```
 
 ## Workflow Templates
