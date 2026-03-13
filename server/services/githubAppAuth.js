@@ -40,16 +40,29 @@ function getAppConfig() {
   }
 }
 
-export async function getInstallationToken(owner, repo) {
+export function getAppOctokit() {
   const { appId, privateKey } = getAppConfig()
 
-  const appOctokit = new Octokit({
+  return new Octokit({
     authStrategy: createAppAuth,
     auth: {
       appId,
       privateKey,
     },
   })
+}
+
+export async function getInstallationTokenById(installationId) {
+  const appOctokit = getAppOctokit()
+  const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
+    installation_id: installationId,
+  })
+
+  return data.token
+}
+
+export async function getInstallationToken(owner, repo) {
+  const appOctokit = getAppOctokit()
 
   const { data: installation } = await appOctokit.rest.apps.getRepoInstallation(
     {

@@ -5,6 +5,8 @@ import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import deployRoutes from './routes/deployRoutes.js'
 import authRoutes from './routes/authRoutes.js'
+import githubRoutes from './routes/githubRoutes.js'
+import { handleGitHubWebhook } from './controllers/githubController.js'
 import { getDeployStatus } from './services/deployStatusStore.js'
 
 const app = express()
@@ -170,6 +172,12 @@ app.use(
 	})
 )
 
+app.post(
+	'/webhooks/github',
+	express.raw({ type: 'application/json' }),
+	handleGitHubWebhook,
+)
+
 app.use(express.json())
 app.use(cookieParser())
 
@@ -237,5 +245,6 @@ app.use(async (req, res, next) => {
 
 app.use('/auth', authRoutes)
 app.use('/deploy', deployRoutes)
+app.use('/api/github', githubRoutes)
 
 export default app

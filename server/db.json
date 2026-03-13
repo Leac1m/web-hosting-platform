@@ -2,18 +2,46 @@
   "deployStatuses": {
     "leac1m-react-ci-demo": {
       "project": "leac1m-react-ci-demo",
-      "status": "queued",
-      "updatedAt": "2026-03-13T02:38:08.311Z",
+      "status": "failed",
+      "updatedAt": "2026-03-13T08:34:16.525Z",
       "repo": "leac1m/react-ci-demo",
       "branch": "main",
       "hostingTarget": "github-pages",
+      "providerStatus": "failed",
       "hostingUrl": "/sites/leac1m-react-ci-demo/",
       "providerUrl": "https://leac1m.github.io/react-ci-demo/",
-      "providerStatus": "queued",
+      "reason": "getaddrinfo EAI_AGAIN api.github.com",
       "pagesConfigured": true,
       "pagesSource": "workflow",
       "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-13T08:02:07.339Z"
+      "pagesLastCheckedAt": "2026-03-13T19:28:07.940Z"
+    },
+    "Leac1m-demo": {
+      "project": "Leac1m-demo",
+      "status": "failed",
+      "updatedAt": "2026-03-13T19:26:38.301Z",
+      "repo": "Leac1m/demo",
+      "branch": "main",
+      "hostingTarget": "github-pages",
+      "providerStatus": "failed",
+      "hostingUrl": "/sites/Leac1m-demo/",
+      "providerUrl": "https://Leac1m.github.io/demo/",
+      "reason": "Missing required GitHub App permissions for Pages management"
+    },
+    "Leac1m-react-ci-demo": {
+      "project": "Leac1m-react-ci-demo",
+      "status": "queued",
+      "updatedAt": "2026-03-13T19:28:05.965Z",
+      "repo": "Leac1m/react-ci-demo",
+      "branch": "main",
+      "hostingTarget": "github-pages",
+      "hostingUrl": "/sites/Leac1m-react-ci-demo/",
+      "providerUrl": "https://leac1m.github.io/react-ci-demo/",
+      "pagesConfigured": true,
+      "pagesSource": "workflow",
+      "pagesConfigStatus": "ok",
+      "pagesLastCheckedAt": "2026-03-13T19:28:31.125Z",
+      "providerStatus": "queued"
     }
   }
 }

@@ -1,11 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { authApi, deployApi } from './services/api'
+import { authApi, deployApi, githubApi } from './services/api'
 import './App.css'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
 
 const toProjectName = (repoName) => repoName.replace('/', '-')
+
+const formatRetryCountdown = (resetAt) => {
+  if (!resetAt) {
+    return null
+  }
+
+  const resetTime = new Date(resetAt).getTime()
+
+  if (Number.isNaN(resetTime)) {
+    return null
+  }
+
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((resetTime - Date.now()) / 1000),
+  )
+
+  return remainingSeconds
+}
 
 const toDeploymentUrl = (status) => {
   const candidate = status?.hostingUrl || status?.url
@@ -25,6 +44,12 @@ function App() {
   const [isLoadingUser, setIsLoadingUser] = useState(true)
   const [user, setUser] = useState(null)
   const [repo, setRepo] = useState('')
+  const [repoSearch, setRepoSearch] = useState('')
+  const [repositoryOptions, setRepositoryOptions] = useState([])
+  const [isLoadingRepositories, setIsLoadingRepositories] = useState(false)
+  const [repositoryError, setRepositoryError] = useState('')
+  const [installUrl, setInstallUrl] = useState('')
+  const [rateLimitResetAt, setRateLimitResetAt] = useState('')
   const [branch, setBranch] = useState('main')
   const [hostingTarget, setHostingTarget] = useState('platform')
   const [activeProject, setActiveProject] = useState('')
@@ -96,6 +121,48 @@ function App() {
     }
   }
 
+  const loadRepositories = async (searchValue = '') => {
+    setIsLoadingRepositories(true)
+    setRepositoryError('')
+
+    try {
+      const response = await githubApi.listRepositories({
+        page: 1,
+        per_page: 50,
+        search: searchValue,
+      })
+
+      const repositories = response.data?.repositories || []
+      setRepositoryOptions(repositories)
+      setInstallUrl('')
+      setRateLimitResetAt('')
+
+      if (!repo && repositories.length > 0) {
+        setRepo(repositories[0].full_name)
+      }
+    } catch (requestError) {
+      const code = requestError?.response?.data?.error
+
+      setRepositoryOptions([])
+
+      if (code === 'app_not_installed') {
+        setInstallUrl(requestError?.response?.data?.installUrl || '')
+        setRepositoryError('Install the GitHub App to list repositories.')
+        return
+      }
+
+      if (code === 'rate_limited') {
+        setRateLimitResetAt(requestError?.response?.data?.resetAt || '')
+        setRepositoryError('GitHub API rate limit reached. Please retry soon.')
+        return
+      }
+
+      setRepositoryError('Failed to load repositories')
+    } finally {
+      setIsLoadingRepositories(false)
+    }
+  }
+
   const handleSyncPagesConfig = async () => {
     if (!activeProject || activeProjectTarget !== 'github-pages') {
       return
@@ -156,6 +223,18 @@ function App() {
   }, [user])
 
   useEffect(() => {
+    if (!user) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      loadRepositories(repoSearch)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [repoSearch, user])
+
+  useEffect(() => {
     if (!activeProject) {
       return
     }
@@ -177,6 +256,12 @@ function App() {
       setDeployStatus(null)
       setDeployments([])
       setPagesConfigByProject({})
+      setRepositoryOptions([])
+      setRepo('')
+      setRepoSearch('')
+      setRepositoryError('')
+      setInstallUrl('')
+      setRateLimitResetAt('')
       setActiveProject('')
       setActiveProjectTarget('platform')
     }
@@ -239,13 +324,32 @@ function App() {
         <h2>Deploy</h2>
         <form onSubmit={handleDeploy} className="form-grid">
           <label>
-            Repository
+            Search Repositories
             <input
+              value={repoSearch}
+              onChange={(event) => setRepoSearch(event.target.value)}
+              placeholder="Filter by repository name"
+            />
+          </label>
+
+          <label>
+            Repository
+            <select
               value={repo}
               onChange={(event) => setRepo(event.target.value)}
-              placeholder="owner/repo"
               required
-            />
+            >
+              <option value="" disabled>
+                {isLoadingRepositories
+                  ? 'Loading repositories...'
+                  : 'Select repository'}
+              </option>
+              {repositoryOptions.map((item) => (
+                <option key={item.id} value={item.full_name}>
+                  {item.full_name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label>
@@ -273,6 +377,20 @@ function App() {
           </button>
         </form>
         {error ? <p className="error">{error}</p> : null}
+        {repositoryError ? <p className="error">{repositoryError}</p> : null}
+        {rateLimitResetAt ? (
+          <p>
+            Retry in approximately {formatRetryCountdown(rateLimitResetAt) || 0}{' '}
+            seconds.
+          </p>
+        ) : null}
+        {installUrl ? (
+          <p>
+            <a href={installUrl} target="_blank" rel="noreferrer">
+              Install GitHub App
+            </a>
+          </p>
+        ) : null}
       </section>
 
       <section className="card">

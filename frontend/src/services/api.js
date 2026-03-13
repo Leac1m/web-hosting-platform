@@ -25,4 +25,8 @@ export const deployApi = {
   list: () => api.get('/deploy/list'),
 }
 
+export const githubApi = {
+  listRepositories: (params) => api.get('/api/github/repositories', { params }),
+}
+
 export default api
