@@ -3,7 +3,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const deployStatusMap = new Map()
-const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID)
+const isTestEnv =
+  process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID)
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const dbPath = path.resolve(__dirname, '../db.json')
@@ -61,7 +62,7 @@ export function setDeployStatus(project, status, details = {}) {
     project,
     status,
     updatedAt: new Date().toISOString(),
-    ...details
+    ...details,
   })
 
   persistStatuses()
@@ -76,9 +77,9 @@ export function getAllDeployStatuses() {
 }
 
 export function getProjectNameFromRepo(repo) {
-  if (!repo || typeof repo !== "string") {
+  if (!repo || typeof repo !== 'string') {
     return null
   }
 
-  return repo.replace("/", "-")
+  return repo.replace('/', '-')
 }

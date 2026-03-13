@@ -5,11 +5,13 @@
 Configure the following secrets in your GitHub repository for automated deployments:
 
 ### `DEPLOY_BACKEND_URL`
+
 - **Description:** The base URL of your deployment backend server
 - **Example:** `https://api.example.com` or `http://localhost:3000` (for local testing)
 - **Required:** Yes
 
 ### `DEPLOY_SECRET`
+
 - **Description:** Bearer token for authenticating artifact uploads to the backend
 - **Security:** Keep this value secure; treat it like a password
 - **Where it's used:** GitHub Actions workflow uploads artifacts to `/deploy/upload` endpoint
@@ -43,11 +45,14 @@ The backend relay keeps requests under the project path and mitigates absolute-r
 ## Setup Instructions
 
 ### 0. Configure GitHub App (Required)
+
 Create and install a GitHub App with repository permissions:
+
 - **Actions:** Read and write
 - **Contents:** Read-only
 
 Set backend environment variables:
+
 ```bash
 GITHUB_APP_ID=<app-id>
 GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem>
@@ -63,23 +68,29 @@ FRONTEND_URL=http://localhost:5173
 ```
 
 ### 1. Set Backend URL Secret
+
 ```bash
 gh secret set DEPLOY_BACKEND_URL --body "https://your-backend-domain.com"
 ```
 
 ### 2. Set Deploy Secret
+
 Generate a secure random token (e.g., using `openssl rand -base64 32`), then:
+
 ```bash
 gh secret set DEPLOY_SECRET --body "<your-token>"
 ```
 
 ### 3. Set Server Environment Variable
+
 On your backend server, set the same `DEPLOY_SECRET`:
+
 ```bash
 export DEPLOY_SECRET="<your-token>"
 ```
 
 ### 4. Trigger a Manual Deployment
+
 ```bash
 gh workflow run deploy.yml --ref main
 ```
@@ -90,19 +101,21 @@ To test locally without pushing to GitHub:
 
 1. Start the server with `.env` file:
    ```bash
-  GITHUB_APP_ID=<app-id> \
-  GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem> \
+   GITHUB_APP_ID=<app-id> \
+   GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem> \
    DEPLOY_SECRET=<your-deploy-secret> \
    NODE_ENV=development \
-  npm run dev
+   npm run dev
    ```
 
-  Legacy fallback is still supported:
-  ```bash
-  GITHUB_TOKEN=<your-github-token>
-  ```
+Legacy fallback is still supported:
+
+```bash
+GITHUB_TOKEN=<your-github-token>
+```
 
 2. Call the `/deploy` endpoint:
+
    ```bash
    curl -X POST http://localhost:3000/deploy \
      -H "Content-Type: application/json" \
@@ -110,50 +123,55 @@ To test locally without pushing to GitHub:
    ```
 
 3. Call the `/deploy` endpoint for GitHub Pages:
-  ```bash
-  curl -X POST http://localhost:3000/deploy \
-    -H "Content-Type: application/json" \
-    -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
-  ```
+
+```bash
+curl -X POST http://localhost:3000/deploy \
+  -H "Content-Type: application/json" \
+  -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
+```
 
 4. Check Pages-specific status:
-  ```bash
-  curl http://localhost:3000/deploy/pages-status/owner-repo
-  ```
+
+```bash
+curl http://localhost:3000/deploy/pages-status/owner-repo
+```
 
 5. Check Pages upstream availability:
-  ```bash
-  curl http://localhost:3000/deploy/pages-health/owner-repo
-  ```
 
-  Sample healthy response:
-  ```json
-  {
-    "project": "owner-repo",
-    "repo": "owner/repo",
-    "hostingTarget": "github-pages",
-    "hostingUrl": "/sites/owner-repo/",
-    "providerUrl": "https://owner.github.io/repo/",
-    "available": true,
-    "upstreamStatus": 200,
-    "checkedAt": "2026-03-13T00:00:00.000Z"
-  }
-  ```
+```bash
+curl http://localhost:3000/deploy/pages-health/owner-repo
+```
 
-  Sample unavailable response (HTTP 503):
-  ```json
-  {
-    "project": "owner-repo",
-    "repo": "owner/repo",
-    "hostingTarget": "github-pages",
-    "hostingUrl": "/sites/owner-repo/",
-    "providerUrl": "https://owner.github.io/repo/",
-    "available": false,
-    "upstreamStatus": null,
-    "reason": "Failed to reach provider",
-    "checkedAt": "2026-03-13T00:00:00.000Z"
-  }
-  ```
+Sample healthy response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "available": true,
+  "upstreamStatus": 200,
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+Sample unavailable response (HTTP 503):
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "available": false,
+  "upstreamStatus": null,
+  "reason": "Failed to reach provider",
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
 
 ## Workflow Templates
 
@@ -207,18 +225,21 @@ Access at: `http://localhost:3000/sites/owner-repo/`
 To enable versioning in your code:
 
 ```javascript
-import { createVersionedDeploymentPath, updateCurrentSymlink } from './services/deploymentManager.js'
+import {
+  createVersionedDeploymentPath,
+  updateCurrentSymlink,
+} from './services/deploymentManager.js'
 
 // In /deploy/upload endpoint:
 const { versionedPath, currentLink } = createVersionedDeploymentPath(
   projectName,
-  commit
+  commit,
 )
 
 // Extract to versionedPath instead of projectName
 await tar.x({
   file: req.file.path,
-  cwd: versionedPath
+  cwd: versionedPath,
 })
 
 // Atomically update symlink
