@@ -6,6 +6,8 @@ import { jest } from '@jest/globals'
 const mockTarX = jest.fn()
 const mockTriggerBuild = jest.fn()
 const mockFetch = jest.fn()
+const mockEnsurePagesWorkflow = jest.fn()
+const mockGetPagesConfig = jest.fn()
 const originalFetch = global.fetch
 
 jest.unstable_mockModule('tar', () => ({
@@ -23,6 +25,18 @@ jest.unstable_mockModule('../services/buildService.js', () => ({
   },
 }))
 
+jest.unstable_mockModule('../services/githubPagesService.js', () => ({
+  ensurePagesWorkflow: mockEnsurePagesWorkflow,
+  getPagesConfig: mockGetPagesConfig,
+  GitHubPagesError: class GitHubPagesError extends Error {
+    constructor(message, statusCode, code) {
+      super(message)
+      this.statusCode = statusCode
+      this.code = code
+    }
+  },
+}))
+
 describe('POST /deploy/upload', () => {
   let app
 
@@ -33,10 +47,13 @@ describe('POST /deploy/upload', () => {
     process.env.GITHUB_TOKEN = 'gh-token'
     delete process.env.GITHUB_APP_ID
     delete process.env.ENABLE_GITHUB_PAGES
+    delete process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
     mockFetch.mockReset()
+    mockEnsurePagesWorkflow.mockReset()
+    mockGetPagesConfig.mockReset()
     global.fetch = mockFetch
 
     jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
@@ -198,6 +215,105 @@ describe('POST /deploy/upload', () => {
         hostingUrl: '/sites/owner-repo/',
         providerUrl: 'https://owner.github.io/repo/',
       })
+    })
+
+    test('auto-configures pages via GitHub App before dispatch when enabled', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG = 'true'
+      process.env.GITHUB_APP_ID = '123456'
+      delete process.env.GITHUB_TOKEN
+      mockTriggerBuild.mockResolvedValue(undefined)
+      mockEnsurePagesWorkflow.mockResolvedValue({
+        providerUrl: 'https://owner.github.io/repo/',
+        pagesSource: 'workflow',
+        action: 'enabled',
+      })
+
+      const response = await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      expect(response.status).toBe(202)
+      expect(response.body).toMatchObject({
+        hostingTarget: 'github-pages',
+        providerUrl: 'https://owner.github.io/repo/',
+        pagesSource: 'workflow',
+        pagesAction: 'enabled',
+      })
+      expect(mockEnsurePagesWorkflow).toHaveBeenCalledWith('owner', 'repo')
+      expect(mockTriggerBuild).toHaveBeenCalledWith(
+        'owner/repo',
+        'main',
+        undefined,
+        { hostingTarget: 'github-pages' },
+      )
+    })
+
+    test('returns pages config details from GitHub app endpoint', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      process.env.GITHUB_APP_ID = '123456'
+      mockTriggerBuild.mockResolvedValue(undefined)
+      mockGetPagesConfig.mockResolvedValue({
+        providerUrl: 'https://owner.github.io/repo/',
+        pagesSource: 'workflow',
+        httpsCertificateState: 'approved',
+        status: 'built',
+        protectedDomainState: 'verified',
+      })
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      const response = await request(app).get('/deploy/pages-config/owner-repo')
+
+      expect(response.status).toBe(200)
+      expect(response.body).toMatchObject({
+        project: 'owner-repo',
+        providerUrl: 'https://owner.github.io/repo/',
+        pagesConfigured: true,
+        pagesSource: 'workflow',
+        httpsCertificateState: 'approved',
+      })
+      expect(mockGetPagesConfig).toHaveBeenCalledWith('owner', 'repo')
+    })
+
+    test('sync endpoint forces pages workflow reconciliation', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'true'
+      process.env.GITHUB_APP_ID = '123456'
+      mockTriggerBuild.mockResolvedValue(undefined)
+      mockEnsurePagesWorkflow.mockResolvedValue({
+        providerUrl: 'https://owner.github.io/repo/',
+        pagesSource: 'workflow',
+        action: 'updated',
+      })
+
+      await request(app)
+        .post('/deploy')
+        .send({
+          repo: 'owner/repo',
+          branch: 'main',
+          hostingTarget: 'github-pages',
+        })
+
+      const response = await request(app).post('/deploy/pages-config/owner-repo/sync')
+
+      expect(response.status).toBe(200)
+      expect(response.body).toMatchObject({
+        project: 'owner-repo',
+        pagesConfigured: true,
+        pagesSource: 'workflow',
+        action: 'updated',
+      })
+      expect(mockEnsurePagesWorkflow).toHaveBeenCalledWith('owner', 'repo')
     })
 
     test('returns pages provider health when upstream is reachable', async () => {

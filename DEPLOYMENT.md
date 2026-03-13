@@ -62,6 +62,9 @@ GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
 # Optional feature flag for GitHub Pages deployment target
 ENABLE_GITHUB_PAGES=true
 
+# Optional feature flag for automatic GitHub Pages API configuration via GitHub App
+ENABLE_GITHUB_PAGES_AUTO_CONFIG=true
+
 # Phase 2 frontend auth URLs
 BACKEND_URL=http://localhost:3000
 FRONTEND_URL=http://localhost:5173
@@ -130,6 +133,21 @@ curl -X POST http://localhost:3000/deploy \
   -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
 ```
 
+Sample response with Pages auto-config enabled:
+
+```json
+{
+  "status": "queued",
+  "repo": "owner/repo",
+  "branch": "main",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "pagesSource": "workflow",
+  "pagesAction": "enabled"
+}
+```
+
 4. Check Pages-specific status:
 
 ```bash
@@ -154,6 +172,52 @@ Sample healthy response:
   "available": true,
   "upstreamStatus": 200,
   "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+6. Retrieve current GitHub Pages config details:
+
+```bash
+curl http://localhost:3000/deploy/pages-config/owner-repo
+```
+
+Sample response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "pagesConfigured": true,
+  "pagesSource": "workflow",
+  "httpsCertificateState": "approved",
+  "status": "built",
+  "protectedDomainState": "verified",
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+7. Force Pages configuration sync to workflow mode:
+
+```bash
+curl -X POST http://localhost:3000/deploy/pages-config/owner-repo/sync
+```
+
+Sample response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "pagesConfigured": true,
+  "pagesSource": "workflow",
+  "action": "updated",
+  "syncedAt": "2026-03-13T00:00:00.000Z"
 }
 ```
 

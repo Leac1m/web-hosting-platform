@@ -6,6 +6,11 @@ import { validateRepoName } from '../services/pathValidator.js'
 import { logEvent, logError } from '../services/logger.js'
 import { updateRepositorySecrets } from '../services/githubAppAuth.js'
 import {
+  ensurePagesWorkflow,
+  getPagesConfig as fetchPagesConfig,
+  GitHubPagesError,
+} from '../services/githubPagesService.js'
+import {
   getAllDeployStatuses,
   getDeployStatus,
   getProjectNameFromRepo,
@@ -16,6 +21,8 @@ const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 const ALLOWED_HOSTING_TARGETS = new Set(['platform', 'github-pages'])
 
 const isGitHubPagesEnabled = () => process.env.ENABLE_GITHUB_PAGES === 'true'
+const isGitHubPagesAutoConfigEnabled = () =>
+  process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG === 'true'
 
 const getGitHubPagesUrl = (repo) => {
   const [owner, repoName] = repo.split('/')
@@ -133,6 +140,30 @@ const filterStatusesForUser = (statuses, username) => {
   )
 }
 
+const parseOwnerRepo = (repo) => {
+  const [owner, repoName] = String(repo || '').split('/')
+
+  if (!owner || !repoName) {
+    return null
+  }
+
+  return { owner, repoName }
+}
+
+const getPagesConfigFromStatus = async (status, forceSync = false) => {
+  const ownerRepo = parseOwnerRepo(status?.repo)
+
+  if (!ownerRepo) {
+    throw new GitHubPagesError('Invalid repository metadata for project', 422, 'invalid_repo')
+  }
+
+  if (forceSync) {
+    return ensurePagesWorkflow(ownerRepo.owner, ownerRepo.repoName)
+  }
+
+  return fetchPagesConfig(ownerRepo.owner, ownerRepo.repoName)
+}
+
 export const getDeploymentStatus = (req, res) => {
   const project = req.params.project
   const status = getDeployStatus(project)
@@ -238,6 +269,112 @@ export const getPagesProviderHealth = async (req, res) => {
   return res.json(payload)
 }
 
+export const getPagesConfig = async (req, res) => {
+  const project = req.params.project
+  const status = getDeployStatus(project)
+
+  if (!status) {
+    return res.status(404).json({ error: 'Deployment status not found' })
+  }
+
+  if (status.hostingTarget !== 'github-pages') {
+    return res
+      .status(404)
+      .json({ error: 'No GitHub Pages deployment status for project' })
+  }
+
+  if (!Boolean(process.env.GITHUB_APP_ID)) {
+    return res
+      .status(400)
+      .json({ error: 'GitHub App configuration is required for Pages config retrieval' })
+  }
+
+  try {
+    const config = await getPagesConfigFromStatus(status)
+
+    setDeployStatus(project, status.status, {
+      ...status,
+      providerUrl: config.providerUrl || status.providerUrl,
+      pagesConfigured: true,
+      pagesSource: config.pagesSource,
+      pagesConfigStatus: 'ok',
+      pagesLastCheckedAt: new Date().toISOString(),
+    })
+
+    return res.json({
+      project: status.project,
+      repo: status.repo,
+      hostingTarget: status.hostingTarget,
+      hostingUrl: status.hostingUrl,
+      providerUrl: config.providerUrl || status.providerUrl,
+      pagesConfigured: true,
+      pagesSource: config.pagesSource,
+      httpsCertificateState: config.httpsCertificateState,
+      status: config.status,
+      protectedDomainState: config.protectedDomainState,
+      checkedAt: new Date().toISOString(),
+    })
+  } catch (error) {
+    if (error instanceof GitHubPagesError) {
+      return res.status(error.statusCode || 500).json({ error: error.message })
+    }
+
+    return res.status(500).json({ error: 'Failed to fetch Pages config' })
+  }
+}
+
+export const syncPagesConfig = async (req, res) => {
+  const project = req.params.project
+  const status = getDeployStatus(project)
+
+  if (!status) {
+    return res.status(404).json({ error: 'Deployment status not found' })
+  }
+
+  if (status.hostingTarget !== 'github-pages') {
+    return res
+      .status(404)
+      .json({ error: 'No GitHub Pages deployment status for project' })
+  }
+
+  if (!Boolean(process.env.GITHUB_APP_ID)) {
+    return res
+      .status(400)
+      .json({ error: 'GitHub App configuration is required for Pages config sync' })
+  }
+
+  try {
+    const config = await getPagesConfigFromStatus(status, true)
+
+    setDeployStatus(project, status.status, {
+      ...status,
+      providerUrl: config.providerUrl || status.providerUrl,
+      pagesConfigured: true,
+      pagesSource: config.pagesSource,
+      pagesConfigStatus: 'ok',
+      pagesLastCheckedAt: new Date().toISOString(),
+    })
+
+    return res.json({
+      project: status.project,
+      repo: status.repo,
+      hostingTarget: status.hostingTarget,
+      hostingUrl: status.hostingUrl,
+      providerUrl: config.providerUrl || status.providerUrl,
+      pagesConfigured: true,
+      pagesSource: config.pagesSource,
+      action: config.action || 'noop',
+      syncedAt: new Date().toISOString(),
+    })
+  } catch (error) {
+    if (error instanceof GitHubPagesError) {
+      return res.status(error.statusCode || 500).json({ error: error.message })
+    }
+
+    return res.status(500).json({ error: 'Failed to sync Pages config' })
+  }
+}
+
 export const triggerDeployment = async (req, res) => {
   const repo = req.body?.repo
   const branch = req.body?.branch || 'main'
@@ -268,7 +405,7 @@ export const triggerDeployment = async (req, res) => {
   }
 
   const projectName = getProjectNameFromRepo(repo)
-  const providerUrl =
+  let providerUrl =
     hostingTarget === 'github-pages' ? getGitHubPagesUrl(repo) : undefined
   const hostingUrl =
     hostingTarget === 'github-pages'
@@ -305,6 +442,32 @@ export const triggerDeployment = async (req, res) => {
       })
     }
 
+    let pagesConfig = null
+
+    if (
+      hostingTarget === 'github-pages' &&
+      hasGitHubAppConfig &&
+      isGitHubPagesAutoConfigEnabled()
+    ) {
+      const ownerRepo = parseOwnerRepo(repo)
+
+      if (!ownerRepo) {
+        throw new GitHubPagesError('Invalid repository format for Pages auto configuration', 422, 'invalid_repo')
+      }
+
+      pagesConfig = await ensurePagesWorkflow(ownerRepo.owner, ownerRepo.repoName)
+      providerUrl = pagesConfig.providerUrl || providerUrl
+
+      logEvent('pages_sync_completed', {
+        repo,
+        project: projectName,
+        hostingTarget,
+        pagesSource: pagesConfig.pagesSource,
+        action: pagesConfig.action,
+        providerUrl,
+      })
+    }
+
     await triggerBuild(repo, branch, githubToken, { hostingTarget })
 
     setDeployStatus(projectName, 'queued', {
@@ -313,6 +476,10 @@ export const triggerDeployment = async (req, res) => {
       hostingTarget,
       hostingUrl,
       providerUrl,
+      pagesConfigured: Boolean(pagesConfig),
+      pagesSource: pagesConfig?.pagesSource,
+      pagesConfigStatus: pagesConfig ? 'ok' : undefined,
+      pagesLastCheckedAt: pagesConfig ? new Date().toISOString() : undefined,
       providerStatus: 'queued',
     })
     logEvent('deploy_queued', {
@@ -322,6 +489,8 @@ export const triggerDeployment = async (req, res) => {
       hostingTarget,
       hostingUrl,
       providerUrl,
+      pagesSource: pagesConfig?.pagesSource,
+      pagesAction: pagesConfig?.action,
     })
 
     return res.status(202).json({
@@ -331,6 +500,8 @@ export const triggerDeployment = async (req, res) => {
       hostingTarget,
       ...(hostingUrl ? { hostingUrl } : {}),
       ...(providerUrl ? { providerUrl } : {}),
+      ...(pagesConfig?.pagesSource ? { pagesSource: pagesConfig.pagesSource } : {}),
+      ...(pagesConfig?.action ? { pagesAction: pagesConfig.action } : {}),
     })
   } catch (err) {
     logError('deploy_trigger_failed', err, {
@@ -367,6 +538,21 @@ export const triggerDeployment = async (req, res) => {
         return res
           .status(422)
           .json({ error: 'Invalid branch or repository reference' })
+      }
+    }
+
+    if (err instanceof GitHubPagesError) {
+      if (err.statusCode === 403) {
+        return res.status(403).json({ error: err.message })
+      }
+      if (err.statusCode === 404) {
+        return res.status(404).json({ error: err.message })
+      }
+      if (err.statusCode === 409) {
+        return res.status(409).json({ error: err.message })
+      }
+      if (err.statusCode === 422) {
+        return res.status(422).json({ error: err.message })
       }
     }
 

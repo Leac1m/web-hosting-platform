@@ -9,7 +9,11 @@
       "hostingTarget": "github-pages",
       "hostingUrl": "/sites/leac1m-react-ci-demo/",
       "providerUrl": "https://leac1m.github.io/react-ci-demo/",
-      "providerStatus": "queued"
+      "providerStatus": "queued",
+      "pagesConfigured": true,
+      "pagesSource": "workflow",
+      "pagesConfigStatus": "ok",
+      "pagesLastCheckedAt": "2026-03-13T08:02:07.339Z"
     }
   }
 }

@@ -31,7 +31,9 @@ function App() {
   const [activeProjectTarget, setActiveProjectTarget] = useState('platform')
   const [deployStatus, setDeployStatus] = useState(null)
   const [deployments, setDeployments] = useState([])
+  const [pagesConfigByProject, setPagesConfigByProject] = useState({})
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isSyncingPagesConfig, setIsSyncingPagesConfig] = useState(false)
   const [error, setError] = useState('')
 
   const loginUrl = useMemo(() => authApi.getLoginUrl(), [])
@@ -39,9 +41,33 @@ function App() {
   const loadDeployments = async () => {
     try {
       const response = await deployApi.list()
-      setDeployments(response.data)
+      const nextDeployments = response.data
+      setDeployments(nextDeployments)
+
+      const githubPagesProjects = nextDeployments
+        .filter((item) => item.hostingTarget === 'github-pages')
+        .map((item) => item.project)
+
+      if (githubPagesProjects.length === 0) {
+        setPagesConfigByProject({})
+        return
+      }
+
+      const pagesEntries = await Promise.all(
+        githubPagesProjects.map(async (project) => {
+          try {
+            const pagesConfigResponse = await deployApi.getPagesConfig(project)
+            return [project, pagesConfigResponse.data]
+          } catch {
+            return [project, null]
+          }
+        }),
+      )
+
+      setPagesConfigByProject(Object.fromEntries(pagesEntries))
     } catch {
       setDeployments([])
+      setPagesConfigByProject({})
     }
   }
 
@@ -51,13 +77,43 @@ function App() {
     }
 
     try {
-      const response =
-        target === 'github-pages'
-          ? await deployApi.getPagesStatus(projectName)
-          : await deployApi.getStatus(projectName)
-      setDeployStatus(response.data)
+      if (target === 'github-pages') {
+        const [statusResponse, pagesConfigResponse] = await Promise.all([
+          deployApi.getPagesStatus(projectName),
+          deployApi.getPagesConfig(projectName).catch(() => null),
+        ])
+
+        setDeployStatus({
+          ...statusResponse.data,
+          ...(pagesConfigResponse?.data || {}),
+        })
+      } else {
+        const response = await deployApi.getStatus(projectName)
+        setDeployStatus(response.data)
+      }
     } catch {
       setDeployStatus(null)
+    }
+  }
+
+  const handleSyncPagesConfig = async () => {
+    if (!activeProject || activeProjectTarget !== 'github-pages') {
+      return
+    }
+
+    setError('')
+    setIsSyncingPagesConfig(true)
+
+    try {
+      await deployApi.syncPagesConfig(activeProject)
+      await loadStatus(activeProject, activeProjectTarget)
+      await loadDeployments()
+    } catch (requestError) {
+      const errorMessage =
+        requestError?.response?.data?.error || 'Failed to sync GitHub Pages configuration'
+      setError(errorMessage)
+    } finally {
+      setIsSyncingPagesConfig(false)
     }
   }
 
@@ -119,6 +175,7 @@ function App() {
       setUser(null)
       setDeployStatus(null)
       setDeployments([])
+      setPagesConfigByProject({})
       setActiveProject('')
       setActiveProjectTarget('platform')
     }
@@ -237,6 +294,29 @@ function App() {
                 <strong>Provider Status:</strong> {deployStatus.providerStatus}
               </p>
             ) : null}
+            {deployStatus.pagesSource ? (
+              <p>
+                <strong>Pages Source:</strong> {deployStatus.pagesSource}
+              </p>
+            ) : null}
+            {deployStatus.httpsCertificateState ? (
+              <p>
+                <strong>HTTPS Certificate:</strong> {deployStatus.httpsCertificateState}
+              </p>
+            ) : null}
+            {activeProject && activeProjectTarget === 'github-pages' ? (
+              <p>
+                <button
+                  type="button"
+                  onClick={handleSyncPagesConfig}
+                  disabled={isSyncingPagesConfig}
+                >
+                  {isSyncingPagesConfig
+                    ? 'Syncing Pages Config...'
+                    : 'Sync Pages Config'}
+                </button>
+              </p>
+            ) : null}
             {toDeploymentUrl(deployStatus) ? (
               <p>
                 <strong>URL:</strong>{' '}
@@ -279,6 +359,16 @@ function App() {
                   <strong>{item.project}</strong>
                   <p>{item.repo || 'unknown repo'}</p>
                   <p>{item.hostingTarget || 'platform'}</p>
+                  {item.hostingTarget === 'github-pages' ? (
+                    <div className="list-meta-row">
+                      <span className="list-meta-pill">
+                        Source: {pagesConfigByProject[item.project]?.pagesSource || 'unknown'}
+                      </span>
+                      <span className="list-meta-pill">
+                        HTTPS: {pagesConfigByProject[item.project]?.httpsCertificateState || 'unknown'}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
                 <span>{item.status}</span>
               </li>

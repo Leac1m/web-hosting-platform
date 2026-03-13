@@ -65,17 +65,21 @@ export async function getInstallationToken(owner, repo) {
   return data.token
 }
 
+export async function getInstallationOctokit(owner, repo) {
+  const installationToken = await getInstallationToken(owner, repo)
+
+  return new Octokit({
+    auth: installationToken,
+  })
+}
+
 export async function triggerWorkflowWithApp(
   owner,
   repo,
   branch,
   workflowId = 'deploy.yml',
 ) {
-  const installationToken = await getInstallationToken(owner, repo)
-
-  const installationOctokit = new Octokit({
-    auth: installationToken,
-  })
+  const installationOctokit = await getInstallationOctokit(owner, repo)
 
   await installationOctokit.rest.actions.createWorkflowDispatch({
     owner,
@@ -98,11 +102,7 @@ export async function updateRepositorySecret(
   secretName,
   secretValue,
 ) {
-  const installationToken = await getInstallationToken(owner, repo)
-
-  const installationOctokit = new Octokit({
-    auth: installationToken,
-  })
+  const installationOctokit = await getInstallationOctokit(owner, repo)
 
   // Get the repository's public key for secret encryption
   const { data: publicKeyData } =

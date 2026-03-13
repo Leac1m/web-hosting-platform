@@ -19,6 +19,8 @@ export const deployApi = {
     api.post('/deploy', { repo, branch, hostingTarget }),
   getStatus: (project) => api.get(`/deploy/status/${project}`),
   getPagesStatus: (project) => api.get(`/deploy/pages-status/${project}`),
+  getPagesConfig: (project) => api.get(`/deploy/pages-config/${project}`),
+  syncPagesConfig: (project) => api.post(`/deploy/pages-config/${project}/sync`),
   list: () => api.get('/deploy/list'),
 }
 
