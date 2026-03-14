@@ -276,6 +276,76 @@ Repository workflow templates are available in:
 - `workflows/deploy.yml` for platform artifact upload flow
 - `workflows/deploy-pages.yml` for GitHub Pages publishing flow
 
+## Single Deployment (Frontend + Server)
+
+This repository can be deployed as a single service where Express serves both the backend APIs and the built frontend.
+
+### Runtime Behavior
+
+- Frontend app is served from `/` using `frontend/dist`
+- API routes remain under `/auth`, `/deploy`, and `/api/github`
+- Webhook route remains under `/webhooks/github`
+- Project hosting routes remain under `/sites/:project`
+
+### Production Environment Values
+
+Use same-origin values in production:
+
+```bash
+NODE_ENV=production
+BACKEND_URL=https://your-domain.com
+FRONTEND_URL=https://your-domain.com
+DEPLOY_BACKEND_URL=https://your-domain.com
+```
+
+### Build and Start Commands
+
+Build command:
+
+```bash
+cd server && pnpm install --frozen-lockfile && pnpm run build:frontend
+```
+
+Start command:
+
+```bash
+cd server && pnpm run start
+```
+
+If your host only supports a single command:
+
+```bash
+cd server && pnpm install --frozen-lockfile && pnpm run start:prod
+```
+
+### Local Verification for Single Deployment
+
+```bash
+cd server
+pnpm run build:frontend
+pnpm run start
+```
+
+Then open `http://localhost:3000/` and verify:
+
+- frontend loads from Express
+- API calls work via same origin
+- `/sites/:project` routes still function
+
+### Required CI Check Before Deploy
+
+Enable branch protection for `main` and require the GitHub Actions workflow
+`Predeploy Checks` (job: `verify`) to pass before merge.
+
+This workflow is defined in:
+
+- `.github/workflows/predeploy-checks.yml`
+
+It enforces the minimum predeploy gates:
+
+- `pnpm run build:frontend` (from `server/`)
+- `pnpm test` (server test suite)
+
 ## Directory Structure After Deployment
 
 ```

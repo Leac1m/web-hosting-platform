@@ -6,7 +6,10 @@
 	"main": "index.js",
 	"scripts": {
 		"dev": "node --watch index.js",
-		"test": "NODE_OPTIONS=--experimental-vm-modules jest"
+		"test": "NODE_OPTIONS=--experimental-vm-modules jest",
+		"build:frontend": "pnpm --dir ../frontend install --frozen-lockfile && pnpm --dir ../frontend build",
+		"start": "node index.js",
+		"start:prod": "pnpm run build:frontend && pnpm run start"
 	},
 	"dependencies": {
 		"@octokit/auth-app": "^8.2.0",

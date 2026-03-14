@@ -4,6 +4,9 @@ import { cleanupTmpDir } from "./services/cleanupTmp.js"
 
 cleanupTmpDir()
 
-app.listen(3000, () => {
-    console.log("Server running on port 3000")
+const parsedPort = Number.parseInt(process.env.PORT, 10)
+const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 3000
+
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`)
 })
