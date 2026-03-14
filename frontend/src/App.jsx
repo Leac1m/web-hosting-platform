@@ -1,16 +1,64 @@
 import { useEffect, useMemo, useState } from 'react'
-import { authApi, deployApi } from './services/api'
+import { authApi, deployApi, githubApi } from './services/api'
 import './App.css'
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+
+const toProjectName = (repoName) => repoName.replace('/', '-')
+
+const formatRetryCountdown = (resetAt) => {
+  if (!resetAt) {
+    return null
+  }
+
+  const resetTime = new Date(resetAt).getTime()
+
+  if (Number.isNaN(resetTime)) {
+    return null
+  }
+
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((resetTime - Date.now()) / 1000),
+  )
+
+  return remainingSeconds
+}
+
+const toDeploymentUrl = (status) => {
+  const candidate = status?.hostingUrl || status?.url
+
+  if (!candidate) {
+    return null
+  }
+
+  if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+    return candidate
+  }
+
+  return `${API_BASE_URL}${candidate}`
+}
 
 function App() {
   const [isLoadingUser, setIsLoadingUser] = useState(true)
   const [user, setUser] = useState(null)
   const [repo, setRepo] = useState('')
+  const [repoSearch, setRepoSearch] = useState('')
+  const [repositoryOptions, setRepositoryOptions] = useState([])
+  const [isLoadingRepositories, setIsLoadingRepositories] = useState(false)
+  const [repositoryError, setRepositoryError] = useState('')
+  const [installUrl, setInstallUrl] = useState('')
+  const [rateLimitResetAt, setRateLimitResetAt] = useState('')
   const [branch, setBranch] = useState('main')
+  const [hostingTarget, setHostingTarget] = useState('github-pages')
   const [activeProject, setActiveProject] = useState('')
+  const [activeProjectTarget, setActiveProjectTarget] = useState('github-pages')
   const [deployStatus, setDeployStatus] = useState(null)
   const [deployments, setDeployments] = useState([])
+  const [pagesConfigByProject, setPagesConfigByProject] = useState({})
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isSyncingPagesConfig, setIsSyncingPagesConfig] = useState(false)
   const [error, setError] = useState('')
 
   const loginUrl = useMemo(() => authApi.getLoginUrl(), [])
@@ -18,22 +66,122 @@ function App() {
   const loadDeployments = async () => {
     try {
       const response = await deployApi.list()
-      setDeployments(response.data)
+      const nextDeployments = response.data
+      setDeployments(nextDeployments)
+
+      const githubPagesProjects = nextDeployments
+        .filter((item) => item.hostingTarget === 'github-pages')
+        .map((item) => item.project)
+
+      if (githubPagesProjects.length === 0) {
+        setPagesConfigByProject({})
+        return
+      }
+
+      const pagesEntries = await Promise.all(
+        githubPagesProjects.map(async (project) => {
+          try {
+            const pagesConfigResponse = await deployApi.getPagesConfig(project)
+            return [project, pagesConfigResponse.data]
+          } catch {
+            return [project, null]
+          }
+        }),
+      )
+
+      setPagesConfigByProject(Object.fromEntries(pagesEntries))
     } catch {
       setDeployments([])
+      setPagesConfigByProject({})
     }
   }
 
-  const loadStatus = async (projectName) => {
+  const loadStatus = async (projectName, target = 'github-pages') => {
     if (!projectName) {
       return
     }
 
     try {
-      const response = await deployApi.getStatus(projectName)
-      setDeployStatus(response.data)
+      if (target === 'github-pages') {
+        const [statusResponse, pagesConfigResponse] = await Promise.all([
+          deployApi.getPagesStatus(projectName),
+          deployApi.getPagesConfig(projectName).catch(() => null),
+        ])
+
+        setDeployStatus({
+          ...statusResponse.data,
+          ...(pagesConfigResponse?.data || {}),
+        })
+      } else {
+        const response = await deployApi.getStatus(projectName)
+        setDeployStatus(response.data)
+      }
     } catch {
       setDeployStatus(null)
+    }
+  }
+
+  const loadRepositories = async (searchValue = '') => {
+    setIsLoadingRepositories(true)
+    setRepositoryError('')
+
+    try {
+      const response = await githubApi.listRepositories({
+        page: 1,
+        per_page: 50,
+        search: searchValue,
+      })
+
+      const repositories = response.data?.repositories || []
+      setRepositoryOptions(repositories)
+      setInstallUrl('')
+      setRateLimitResetAt('')
+
+      if (!repo && repositories.length > 0) {
+        setRepo(repositories[0].full_name)
+      }
+    } catch (requestError) {
+      const code = requestError?.response?.data?.error
+
+      setRepositoryOptions([])
+
+      if (code === 'app_not_installed') {
+        setInstallUrl(requestError?.response?.data?.installUrl || '')
+        setRepositoryError('Install the GitHub App to list repositories.')
+        return
+      }
+
+      if (code === 'rate_limited') {
+        setRateLimitResetAt(requestError?.response?.data?.resetAt || '')
+        setRepositoryError('GitHub API rate limit reached. Please retry soon.')
+        return
+      }
+
+      setRepositoryError('Failed to load repositories')
+    } finally {
+      setIsLoadingRepositories(false)
+    }
+  }
+
+  const handleSyncPagesConfig = async () => {
+    if (!activeProject || activeProjectTarget !== 'github-pages') {
+      return
+    }
+
+    setError('')
+    setIsSyncingPagesConfig(true)
+
+    try {
+      await deployApi.syncPagesConfig(activeProject)
+      await loadStatus(activeProject, activeProjectTarget)
+      await loadDeployments()
+    } catch (requestError) {
+      const errorMessage =
+        requestError?.response?.data?.error ||
+        'Failed to sync GitHub Pages configuration'
+      setError(errorMessage)
+    } finally {
+      setIsSyncingPagesConfig(false)
     }
   }
 
@@ -75,18 +223,30 @@ function App() {
   }, [user])
 
   useEffect(() => {
+    if (!user) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      loadRepositories(repoSearch)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [repoSearch, user])
+
+  useEffect(() => {
     if (!activeProject) {
       return
     }
 
-    loadStatus(activeProject)
+    loadStatus(activeProject, activeProjectTarget)
 
     const timer = setInterval(() => {
-      loadStatus(activeProject)
+      loadStatus(activeProject, activeProjectTarget)
     }, 5000)
 
     return () => clearInterval(timer)
-  }, [activeProject])
+  }, [activeProject, activeProjectTarget])
 
   const handleLogout = async () => {
     try {
@@ -95,7 +255,15 @@ function App() {
       setUser(null)
       setDeployStatus(null)
       setDeployments([])
+      setPagesConfigByProject({})
+      setRepositoryOptions([])
+      setRepo('')
+      setRepoSearch('')
+      setRepositoryError('')
+      setInstallUrl('')
+      setRateLimitResetAt('')
       setActiveProject('')
+      setActiveProjectTarget('github-pages')
     }
   }
 
@@ -106,11 +274,17 @@ function App() {
 
     try {
       const trimmedRepo = repo.trim()
-      await deployApi.trigger(trimmedRepo, branch.trim() || 'main')
+      const response = await deployApi.trigger(
+        trimmedRepo,
+        branch.trim() || 'main',
+        hostingTarget,
+      )
+      setDeployStatus(response.data)
 
-      const projectName = trimmedRepo.replace('/', '-')
+      const projectName = toProjectName(trimmedRepo)
       setActiveProject(projectName)
-      await loadStatus(projectName)
+      setActiveProjectTarget(hostingTarget)
+      await loadStatus(projectName, hostingTarget)
       await loadDeployments()
     } catch (requestError) {
       const errorMessage =
@@ -150,13 +324,32 @@ function App() {
         <h2>Deploy</h2>
         <form onSubmit={handleDeploy} className="form-grid">
           <label>
-            Repository
+            Search Repositories
             <input
+              value={repoSearch}
+              onChange={(event) => setRepoSearch(event.target.value)}
+              placeholder="Filter by repository name"
+            />
+          </label>
+
+          <label>
+            Repository
+            <select
               value={repo}
               onChange={(event) => setRepo(event.target.value)}
-              placeholder="owner/repo"
               required
-            />
+            >
+              <option value="" disabled>
+                {isLoadingRepositories
+                  ? 'Loading repositories...'
+                  : 'Select repository'}
+              </option>
+              {repositoryOptions.map((item) => (
+                <option key={item.id} value={item.full_name}>
+                  {item.full_name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label>
@@ -168,11 +361,36 @@ function App() {
             />
           </label>
 
+          <label>
+            Hosting Target
+            <select
+              value={hostingTarget}
+              onChange={(event) => setHostingTarget(event.target.value)}
+            >
+              <option value="github-pages">GitHub Pages</option>
+              <option value="platform">Platform</option>
+            </select>
+          </label>
+
           <button type="submit" disabled={isDeploying}>
             {isDeploying ? 'Deploying...' : 'Deploy'}
           </button>
         </form>
         {error ? <p className="error">{error}</p> : null}
+        {repositoryError ? <p className="error">{repositoryError}</p> : null}
+        {rateLimitResetAt ? (
+          <p>
+            Retry in approximately {formatRetryCountdown(rateLimitResetAt) || 0}{' '}
+            seconds.
+          </p>
+        ) : null}
+        {installUrl ? (
+          <p>
+            <a href={installUrl} target="_blank" rel="noreferrer">
+              Install GitHub App
+            </a>
+          </p>
+        ) : null}
       </section>
 
       <section className="card">
@@ -185,15 +403,54 @@ function App() {
             <p>
               <strong>Status:</strong> {deployStatus.status}
             </p>
-            {deployStatus.url ? (
+            {deployStatus.hostingTarget ? (
+              <p>
+                <strong>Hosting Target:</strong> {deployStatus.hostingTarget}
+              </p>
+            ) : null}
+            {deployStatus.providerStatus ? (
+              <p>
+                <strong>Provider Status:</strong> {deployStatus.providerStatus}
+              </p>
+            ) : null}
+            {deployStatus.pagesSource ? (
+              <p>
+                <strong>Pages Source:</strong> {deployStatus.pagesSource}
+              </p>
+            ) : null}
+            {deployStatus.workflowSyncStatus ? (
+              <p>
+                <strong>Workflow Sync:</strong> {deployStatus.workflowSyncStatus}
+              </p>
+            ) : null}
+            {deployStatus.httpsCertificateState ? (
+              <p>
+                <strong>HTTPS Certificate:</strong>{' '}
+                {deployStatus.httpsCertificateState}
+              </p>
+            ) : null}
+            {activeProject && activeProjectTarget === 'github-pages' ? (
+              <p>
+                <button
+                  type="button"
+                  onClick={handleSyncPagesConfig}
+                  disabled={isSyncingPagesConfig}
+                >
+                  {isSyncingPagesConfig
+                    ? 'Syncing Pages Config...'
+                    : 'Sync Pages Config'}
+                </button>
+              </p>
+            ) : null}
+            {toDeploymentUrl(deployStatus) ? (
               <p>
                 <strong>URL:</strong>{' '}
                 <a
-                  href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}${deployStatus.url}`}
+                  href={toDeploymentUrl(deployStatus)}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {deployStatus.url}
+                  {toDeploymentUrl(deployStatus)}
                 </a>
               </p>
             ) : null}
@@ -218,10 +475,29 @@ function App() {
               <li
                 key={`${item.project}-${item.updatedAt}`}
                 className="list-item"
+                onClick={() => {
+                  setActiveProject(item.project)
+                  setActiveProjectTarget(item.hostingTarget || 'github-pages')
+                }}
               >
                 <div>
                   <strong>{item.project}</strong>
                   <p>{item.repo || 'unknown repo'}</p>
+                  <p>{item.hostingTarget || 'github-pages'}</p>
+                  {item.hostingTarget === 'github-pages' ? (
+                    <div className="list-meta-row">
+                      <span className="list-meta-pill">
+                        Source:{' '}
+                        {pagesConfigByProject[item.project]?.pagesSource ||
+                          'unknown'}
+                      </span>
+                      <span className="list-meta-pill">
+                        HTTPS:{' '}
+                        {pagesConfigByProject[item.project]
+                          ?.httpsCertificateState || 'unknown'}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
                 <span>{item.status}</span>
               </li>

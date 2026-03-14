@@ -40,16 +40,29 @@ function getAppConfig() {
   }
 }
 
-export async function getInstallationToken(owner, repo) {
+export function getAppOctokit() {
   const { appId, privateKey } = getAppConfig()
 
-  const appOctokit = new Octokit({
+  return new Octokit({
     authStrategy: createAppAuth,
     auth: {
       appId,
       privateKey,
     },
   })
+}
+
+export async function getInstallationTokenById(installationId) {
+  const appOctokit = getAppOctokit()
+  const { data } = await appOctokit.rest.apps.createInstallationAccessToken({
+    installation_id: installationId,
+  })
+
+  return data.token
+}
+
+export async function getInstallationToken(owner, repo) {
+  const appOctokit = getAppOctokit()
 
   const { data: installation } = await appOctokit.rest.apps.getRepoInstallation(
     {
@@ -65,17 +78,26 @@ export async function getInstallationToken(owner, repo) {
   return data.token
 }
 
-export async function triggerWorkflowWithApp(owner, repo, branch) {
+export async function getInstallationOctokit(owner, repo) {
   const installationToken = await getInstallationToken(owner, repo)
 
-  const installationOctokit = new Octokit({
+  return new Octokit({
     auth: installationToken,
   })
+}
+
+export async function triggerWorkflowWithApp(
+  owner,
+  repo,
+  branch,
+  workflowId = 'deploy.yml',
+) {
+  const installationOctokit = await getInstallationOctokit(owner, repo)
 
   await installationOctokit.rest.actions.createWorkflowDispatch({
     owner,
     repo,
-    workflow_id: 'deploy.yml',
+    workflow_id: workflowId,
     ref: branch,
   })
 }
@@ -93,11 +115,7 @@ export async function updateRepositorySecret(
   secretName,
   secretValue,
 ) {
-  const installationToken = await getInstallationToken(owner, repo)
-
-  const installationOctokit = new Octokit({
-    auth: installationToken,
-  })
+  const installationOctokit = await getInstallationOctokit(owner, repo)
 
   // Get the repository's public key for secret encryption
   const { data: publicKeyData } =

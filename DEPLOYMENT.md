@@ -5,11 +5,13 @@
 Configure the following secrets in your GitHub repository for automated deployments:
 
 ### `DEPLOY_BACKEND_URL`
+
 - **Description:** The base URL of your deployment backend server
 - **Example:** `https://api.example.com` or `http://localhost:3000` (for local testing)
 - **Required:** Yes
 
 ### `DEPLOY_SECRET`
+
 - **Description:** Bearer token for authenticating artifact uploads to the backend
 - **Security:** Keep this value secure; treat it like a password
 - **Where it's used:** GitHub Actions workflow uploads artifacts to `/deploy/upload` endpoint
@@ -24,19 +26,45 @@ Configure the following secrets in your GitHub repository for automated deployme
 5. **Backend extracts and serves** → artifact is extracted to `deployments/<owner-repo>/`
 6. **Site goes live** → accessible at `/sites/<owner-repo>`
 
+### Default Target: GitHub Pages
+
+The deployment trigger endpoint defaults to publishing to GitHub Pages.
+
+1. **User triggers deploy** → calls `POST /deploy` with `hostingTarget: github-pages`
+2. **Backend dispatches Pages workflow** → triggers `deploy-pages.yml` on the target repository
+3. **GitHub Pages publishes site** → provider URL is `https://<owner>.github.io/<repo>/`
+4. **Backend relays the site** → served from `/sites/<owner-repo>/`
+
+### URL Semantics for GitHub Pages Deployments
+
+- `hostingUrl`: Backend URL for consumers and UI (for example `/sites/owner-repo/`)
+- `providerUrl`: Upstream GitHub Pages URL (for example `https://owner.github.io/repo/`)
+
+The backend relay keeps requests under the project path and mitigates absolute-root asset and fetch requests by resolving them through the selected project context.
+
 ## Setup Instructions
 
 ### 0. Configure GitHub App (Required)
+
 Create and install a GitHub App with repository permissions:
+
 - **Actions:** Read and write
-- **Contents:** Read-only
+- **Contents:** Read and write
+- **Workflows:** Read and write
 
 Set backend environment variables:
+
 ```bash
 GITHUB_APP_ID=<app-id>
 GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem>
 # or
 GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+
+# Optional feature flag for GitHub Pages deployment target
+ENABLE_GITHUB_PAGES=true
+
+# Optional feature flag for workflow file injection API
+ENABLE_WORKFLOW_INJECTION=true
 
 # Phase 2 frontend auth URLs
 BACKEND_URL=http://localhost:3000
@@ -44,23 +72,29 @@ FRONTEND_URL=http://localhost:5173
 ```
 
 ### 1. Set Backend URL Secret
+
 ```bash
 gh secret set DEPLOY_BACKEND_URL --body "https://your-backend-domain.com"
 ```
 
 ### 2. Set Deploy Secret
+
 Generate a secure random token (e.g., using `openssl rand -base64 32`), then:
+
 ```bash
 gh secret set DEPLOY_SECRET --body "<your-token>"
 ```
 
 ### 3. Set Server Environment Variable
+
 On your backend server, set the same `DEPLOY_SECRET`:
+
 ```bash
 export DEPLOY_SECRET="<your-token>"
 ```
 
 ### 4. Trigger a Manual Deployment
+
 ```bash
 gh workflow run deploy.yml --ref main
 ```
@@ -71,24 +105,176 @@ To test locally without pushing to GitHub:
 
 1. Start the server with `.env` file:
    ```bash
-  GITHUB_APP_ID=<app-id> \
-  GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem> \
+   GITHUB_APP_ID=<app-id> \
+   GITHUB_APP_PRIVATE_KEY_PATH=<path-to-private-key.pem> \
    DEPLOY_SECRET=<your-deploy-secret> \
    NODE_ENV=development \
-  npm run dev
+   npm run dev
    ```
 
-  Legacy fallback is still supported:
-  ```bash
-  GITHUB_TOKEN=<your-github-token>
-  ```
+Legacy fallback is still supported:
+
+```bash
+GITHUB_TOKEN=<your-github-token>
+```
 
 2. Call the `/deploy` endpoint:
+
    ```bash
    curl -X POST http://localhost:3000/deploy \
      -H "Content-Type: application/json" \
      -d '{"repo": "owner/repo", "branch": "main"}'
    ```
+
+3. Call the `/deploy` endpoint for GitHub Pages:
+
+```bash
+curl -X POST http://localhost:3000/deploy \
+  -H "Content-Type: application/json" \
+  -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
+```
+
+Sample response:
+
+```json
+{
+  "status": "queued",
+  "repo": "owner/repo",
+  "branch": "main",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "workflowSyncStatus": "no_changes",
+  "pagesSource": "workflow",
+  "pagesAction": "enabled"
+}
+```
+
+4. Check Pages-specific status:
+
+```bash
+curl http://localhost:3000/deploy/pages-status/owner-repo
+```
+
+5. Check Pages upstream availability:
+
+```bash
+curl http://localhost:3000/deploy/pages-health/owner-repo
+```
+
+Sample healthy response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "available": true,
+  "upstreamStatus": 200,
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+6. Retrieve current GitHub Pages config details:
+
+```bash
+curl http://localhost:3000/deploy/pages-config/owner-repo
+```
+
+Sample response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "pagesConfigured": true,
+  "pagesSource": "workflow",
+  "httpsCertificateState": "approved",
+  "status": "built",
+  "protectedDomainState": "verified",
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+7. Force Pages configuration sync to workflow mode:
+
+```bash
+curl -X POST http://localhost:3000/deploy/pages-config/owner-repo/sync
+```
+
+Sample response:
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "pagesConfigured": true,
+  "pagesSource": "workflow",
+  "action": "updated",
+  "syncedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+8. Create/update managed workflow files via commit sync:
+
+```bash
+curl -X POST http://localhost:3000/deploy/workflows/sync \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo": "owner/repo",
+    "baseBranch": "main",
+    "mode": "commit",
+    "files": ["deploy.yml", "deploy-pages.yml"],
+    "force": false
+  }'
+```
+
+Sample sync response:
+
+```json
+{
+  "status": "synced",
+  "repo": "owner/repo",
+  "mode": "commit",
+  "branch": "main",
+  "changedFiles": [
+    ".github/workflows/deploy.yml",
+    ".github/workflows/deploy-pages.yml"
+  ],
+  "skippedFiles": []
+}
+```
+
+Sample unavailable response (HTTP 503):
+
+```json
+{
+  "project": "owner-repo",
+  "repo": "owner/repo",
+  "hostingTarget": "github-pages",
+  "hostingUrl": "/sites/owner-repo/",
+  "providerUrl": "https://owner.github.io/repo/",
+  "available": false,
+  "upstreamStatus": null,
+  "reason": "Failed to reach provider",
+  "checkedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+## Workflow Templates
+
+Repository workflow templates are available in:
+
+- `workflows/deploy.yml` for platform artifact upload flow
+- `workflows/deploy-pages.yml` for GitHub Pages publishing flow
 
 ## Directory Structure After Deployment
 
@@ -135,18 +321,21 @@ Access at: `http://localhost:3000/sites/owner-repo/`
 To enable versioning in your code:
 
 ```javascript
-import { createVersionedDeploymentPath, updateCurrentSymlink } from './services/deploymentManager.js'
+import {
+  createVersionedDeploymentPath,
+  updateCurrentSymlink,
+} from './services/deploymentManager.js'
 
 // In /deploy/upload endpoint:
 const { versionedPath, currentLink } = createVersionedDeploymentPath(
   projectName,
-  commit
+  commit,
 )
 
 // Extract to versionedPath instead of projectName
 await tar.x({
   file: req.file.path,
-  cwd: versionedPath
+  cwd: versionedPath,
 })
 
 // Atomically update symlink

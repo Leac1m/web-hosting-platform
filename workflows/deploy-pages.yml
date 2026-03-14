@@ -1,0 +1,72 @@
+# Managed by Web Hosting Platform
+# Template-Version: 1
+name: Build and Deploy to GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build (defaults to main)'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || 'main' }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build App
+        run: npm run build
+
+      - name: Select static output directory
+        run: |
+          if [ -d "dist" ]; then
+            echo "BUILD_OUTPUT=dist" >> "$GITHUB_ENV"
+          elif [ -d "build" ]; then
+            echo "BUILD_OUTPUT=build" >> "$GITHUB_ENV"
+          else
+            echo "ERROR: No dist/ or build/ directory found after build"
+            exit 1
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ env.BUILD_OUTPUT }}
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

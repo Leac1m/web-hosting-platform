@@ -761,3 +761,14 @@ npx create-react-app frontend
 cd frontend
 pnpm add axios react-router-dom
 ```
+
+## GitHub Pages Feature Plans (New)
+
+A dedicated plan for adding GitHub Pages as a new hosting target in the existing GitHub App-based backend is available at:
+
+- `server/GITHUB_PAGES_IMPLEMENTATION_PLANS.md`
+
+It includes:
+- Plan A (recommended MVP): workflow-based Pages deployment
+- Plan B (advanced): API-driven Pages provisioning plus workflow dispatch
+- endpoint, service, data model, test, rollout, and security checklists

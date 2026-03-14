@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import axios from 'axios'
+import { getAppOctokit } from '../services/githubAppAuth.js'
 
 const sessions = new Map()
 
@@ -42,9 +43,29 @@ function getSession(sessionId) {
   return session || null
 }
 
+export function updateSessionUser(sessionId, userUpdates) {
+  const session = getSession(sessionId)
+
+  if (!session) {
+    return null
+  }
+
+  const updatedSession = {
+    ...session,
+    user: {
+      ...session.user,
+      ...userUpdates,
+    },
+  }
+
+  sessions.set(sessionId, updatedSession)
+  return updatedSession
+}
+
 export function requireAuth(req, res, next) {
   if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
     req.user = { login: 'test-user' }
+    req.sessionId = null
     return next()
   }
 
@@ -56,6 +77,7 @@ export function requireAuth(req, res, next) {
   }
 
   req.user = session.user
+  req.sessionId = sessionId
   return next()
 }
 
@@ -127,7 +149,25 @@ export async function handleGitHubCallback(req, res) {
       avatarUrl: userResponse.data?.avatar_url,
     }
 
-    const sessionId = createSession(user)
+    let installationId = null
+
+    try {
+      const appOctokit = getAppOctokit()
+      const { data: installation } = await appOctokit.rest.apps.getUserInstallation(
+        {
+          username: user.login,
+        },
+      )
+      installationId = installation.id
+    } catch (error) {
+      const status = error?.status || error?.response?.status
+
+      if (status !== 404) {
+        throw error
+      }
+    }
+
+    const sessionId = createSession({ ...user, installationId })
 
     res.cookie('session_id', sessionId, {
       httpOnly: true,
