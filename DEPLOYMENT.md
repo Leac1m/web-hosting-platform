@@ -26,9 +26,9 @@ Configure the following secrets in your GitHub repository for automated deployme
 5. **Backend extracts and serves** → artifact is extracted to `deployments/<owner-repo>/`
 6. **Site goes live** → accessible at `/sites/<owner-repo>`
 
-### Alternative Target: GitHub Pages
+### Default Target: GitHub Pages
 
-The deployment trigger endpoint also supports publishing to GitHub Pages.
+The deployment trigger endpoint defaults to publishing to GitHub Pages.
 
 1. **User triggers deploy** → calls `POST /deploy` with `hostingTarget: github-pages`
 2. **Backend dispatches Pages workflow** → triggers `deploy-pages.yml` on the target repository
@@ -49,7 +49,8 @@ The backend relay keeps requests under the project path and mitigates absolute-r
 Create and install a GitHub App with repository permissions:
 
 - **Actions:** Read and write
-- **Contents:** Read-only
+- **Contents:** Read and write
+- **Workflows:** Read and write
 
 Set backend environment variables:
 
@@ -62,8 +63,8 @@ GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
 # Optional feature flag for GitHub Pages deployment target
 ENABLE_GITHUB_PAGES=true
 
-# Optional feature flag for automatic GitHub Pages API configuration via GitHub App
-ENABLE_GITHUB_PAGES_AUTO_CONFIG=true
+# Optional feature flag for workflow file injection API
+ENABLE_WORKFLOW_INJECTION=true
 
 # Phase 2 frontend auth URLs
 BACKEND_URL=http://localhost:3000
@@ -133,7 +134,7 @@ curl -X POST http://localhost:3000/deploy \
   -d '{"repo": "owner/repo", "branch": "main", "hostingTarget": "github-pages"}'
 ```
 
-Sample response with Pages auto-config enabled:
+Sample response:
 
 ```json
 {
@@ -143,6 +144,7 @@ Sample response with Pages auto-config enabled:
   "hostingTarget": "github-pages",
   "hostingUrl": "/sites/owner-repo/",
   "providerUrl": "https://owner.github.io/repo/",
+  "workflowSyncStatus": "no_changes",
   "pagesSource": "workflow",
   "pagesAction": "enabled"
 }
@@ -218,6 +220,36 @@ Sample response:
   "pagesSource": "workflow",
   "action": "updated",
   "syncedAt": "2026-03-13T00:00:00.000Z"
+}
+```
+
+8. Create/update managed workflow files via commit sync:
+
+```bash
+curl -X POST http://localhost:3000/deploy/workflows/sync \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo": "owner/repo",
+    "baseBranch": "main",
+    "mode": "commit",
+    "files": ["deploy.yml", "deploy-pages.yml"],
+    "force": false
+  }'
+```
+
+Sample sync response:
+
+```json
+{
+  "status": "synced",
+  "repo": "owner/repo",
+  "mode": "commit",
+  "branch": "main",
+  "changedFiles": [
+    ".github/workflows/deploy.yml",
+    ".github/workflows/deploy-pages.yml"
+  ],
+  "skippedFiles": []
 }
 ```
 

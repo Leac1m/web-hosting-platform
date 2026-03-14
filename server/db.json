@@ -14,24 +14,27 @@
       "pagesConfigured": true,
       "pagesSource": "workflow",
       "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-13T19:28:07.940Z"
+      "pagesLastCheckedAt": "2026-03-14T10:35:50.901Z"
     },
     "Leac1m-demo": {
       "project": "Leac1m-demo",
-      "status": "failed",
-      "updatedAt": "2026-03-13T19:26:38.301Z",
+      "status": "queued",
+      "updatedAt": "2026-03-14T10:33:09.783Z",
       "repo": "Leac1m/demo",
       "branch": "main",
       "hostingTarget": "github-pages",
-      "providerStatus": "failed",
       "hostingUrl": "/sites/Leac1m-demo/",
-      "providerUrl": "https://Leac1m.github.io/demo/",
-      "reason": "Missing required GitHub App permissions for Pages management"
+      "providerUrl": "https://leac1m.github.io/demo/",
+      "pagesConfigured": true,
+      "pagesSource": "workflow",
+      "pagesConfigStatus": "ok",
+      "pagesLastCheckedAt": "2026-03-14T10:35:50.520Z",
+      "providerStatus": "queued"
     },
     "Leac1m-react-ci-demo": {
       "project": "Leac1m-react-ci-demo",
       "status": "queued",
-      "updatedAt": "2026-03-13T19:28:05.965Z",
+      "updatedAt": "2026-03-13T19:40:00.514Z",
       "repo": "Leac1m/react-ci-demo",
       "branch": "main",
       "hostingTarget": "github-pages",
@@ -40,7 +43,7 @@
       "pagesConfigured": true,
       "pagesSource": "workflow",
       "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-13T19:28:31.125Z",
+      "pagesLastCheckedAt": "2026-03-14T10:35:50.843Z",
       "providerStatus": "queued"
     }
   }

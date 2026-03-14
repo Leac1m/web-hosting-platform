@@ -1,3 +1,5 @@
+# Managed by Web Hosting Platform
+# Template-Version: 1
 name: Build and Deploy to GitHub Pages
 
 on:

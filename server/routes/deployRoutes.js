@@ -9,6 +9,7 @@ import {
   getPagesDeploymentStatus,
   listRouteMappings,
   listDeployments,
+  syncDeploymentWorkflows,
   syncPagesConfig,
   triggerDeployment,
   uploadArtifact,
@@ -46,6 +47,9 @@ router.get('/pages-health/:project', requireAuth, getPagesProviderHealth)
 
 // POST /deploy/pages-config/:project/sync
 router.post('/pages-config/:project/sync', requireAuth, syncPagesConfig)
+
+// POST /deploy/workflows/sync
+router.post('/workflows/sync', requireAuth, syncDeploymentWorkflows)
 
 // POST /deploy
 router.post('/', requireAuth, triggerDeployment)

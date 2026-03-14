@@ -51,9 +51,9 @@ function App() {
   const [installUrl, setInstallUrl] = useState('')
   const [rateLimitResetAt, setRateLimitResetAt] = useState('')
   const [branch, setBranch] = useState('main')
-  const [hostingTarget, setHostingTarget] = useState('platform')
+  const [hostingTarget, setHostingTarget] = useState('github-pages')
   const [activeProject, setActiveProject] = useState('')
-  const [activeProjectTarget, setActiveProjectTarget] = useState('platform')
+  const [activeProjectTarget, setActiveProjectTarget] = useState('github-pages')
   const [deployStatus, setDeployStatus] = useState(null)
   const [deployments, setDeployments] = useState([])
   const [pagesConfigByProject, setPagesConfigByProject] = useState({})
@@ -96,7 +96,7 @@ function App() {
     }
   }
 
-  const loadStatus = async (projectName, target = 'platform') => {
+  const loadStatus = async (projectName, target = 'github-pages') => {
     if (!projectName) {
       return
     }
@@ -263,7 +263,7 @@ function App() {
       setInstallUrl('')
       setRateLimitResetAt('')
       setActiveProject('')
-      setActiveProjectTarget('platform')
+      setActiveProjectTarget('github-pages')
     }
   }
 
@@ -367,8 +367,8 @@ function App() {
               value={hostingTarget}
               onChange={(event) => setHostingTarget(event.target.value)}
             >
-              <option value="platform">Platform</option>
               <option value="github-pages">GitHub Pages</option>
+              <option value="platform">Platform</option>
             </select>
           </label>
 
@@ -416,6 +416,11 @@ function App() {
             {deployStatus.pagesSource ? (
               <p>
                 <strong>Pages Source:</strong> {deployStatus.pagesSource}
+              </p>
+            ) : null}
+            {deployStatus.workflowSyncStatus ? (
+              <p>
+                <strong>Workflow Sync:</strong> {deployStatus.workflowSyncStatus}
               </p>
             ) : null}
             {deployStatus.httpsCertificateState ? (
@@ -472,13 +477,13 @@ function App() {
                 className="list-item"
                 onClick={() => {
                   setActiveProject(item.project)
-                  setActiveProjectTarget(item.hostingTarget || 'platform')
+                  setActiveProjectTarget(item.hostingTarget || 'github-pages')
                 }}
               >
                 <div>
                   <strong>{item.project}</strong>
                   <p>{item.repo || 'unknown repo'}</p>
-                  <p>{item.hostingTarget || 'platform'}</p>
+                  <p>{item.hostingTarget || 'github-pages'}</p>
                   {item.hostingTarget === 'github-pages' ? (
                     <div className="list-meta-row">
                       <span className="list-meta-pill">

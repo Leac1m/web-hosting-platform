@@ -8,6 +8,7 @@ const mockTriggerBuild = jest.fn()
 const mockFetch = jest.fn()
 const mockEnsurePagesWorkflow = jest.fn()
 const mockGetPagesConfig = jest.fn()
+const mockSyncWorkflows = jest.fn()
 const originalFetch = global.fetch
 
 jest.unstable_mockModule('tar', () => ({
@@ -37,6 +38,18 @@ jest.unstable_mockModule('../services/githubPagesService.js', () => ({
   },
 }))
 
+jest.unstable_mockModule('../services/workflowInjectionService.js', () => ({
+  syncWorkflows: mockSyncWorkflows,
+  MANAGED_WORKFLOW_FILES: ['deploy.yml', 'deploy-pages.yml'],
+  WorkflowInjectionError: class WorkflowInjectionError extends Error {
+    constructor(message, statusCode, code) {
+      super(message)
+      this.statusCode = statusCode
+      this.code = code
+    }
+  },
+}))
+
 describe('POST /deploy/upload', () => {
   let app
 
@@ -48,12 +61,14 @@ describe('POST /deploy/upload', () => {
     delete process.env.GITHUB_APP_ID
     delete process.env.ENABLE_GITHUB_PAGES
     delete process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG
+    delete process.env.ENABLE_WORKFLOW_INJECTION
 
     mockTarX.mockReset()
     mockTriggerBuild.mockReset()
     mockFetch.mockReset()
     mockEnsurePagesWorkflow.mockReset()
     mockGetPagesConfig.mockReset()
+    mockSyncWorkflows.mockReset()
     global.fetch = mockFetch
 
     jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined)
@@ -111,13 +126,15 @@ describe('POST /deploy/upload', () => {
         status: 'queued',
         repo: 'owner/repo',
         branch: 'main',
-        hostingTarget: 'platform',
+        hostingTarget: 'github-pages',
+        hostingUrl: '/sites/owner-repo/',
+        providerUrl: 'https://owner.github.io/repo/',
       })
       expect(mockTriggerBuild).toHaveBeenCalledWith(
         'owner/repo',
         'main',
         'gh-token',
-        { hostingTarget: 'platform' },
+        { hostingTarget: 'github-pages' },
       )
 
       const statusResponse = await request(app).get('/deploy/status/owner-repo')
@@ -160,6 +177,8 @@ describe('POST /deploy/upload', () => {
     })
 
     test('returns 403 when github-pages target is disabled', async () => {
+      process.env.ENABLE_GITHUB_PAGES = 'false'
+
       const response = await request(app)
         .post('/deploy')
         .send({
@@ -217,12 +236,17 @@ describe('POST /deploy/upload', () => {
       })
     })
 
-    test('auto-configures pages via GitHub App before dispatch when enabled', async () => {
-      process.env.ENABLE_GITHUB_PAGES = 'true'
-      process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG = 'true'
+    test('auto-syncs workflows and pages config via GitHub App before dispatch', async () => {
       process.env.GITHUB_APP_ID = '123456'
       delete process.env.GITHUB_TOKEN
       mockTriggerBuild.mockResolvedValue(undefined)
+      mockSyncWorkflows.mockResolvedValue({
+        status: 'no_changes',
+        repo: 'owner/repo',
+        mode: 'commit',
+        changedFiles: [],
+        skippedFiles: ['.github/workflows/deploy.yml', '.github/workflows/deploy-pages.yml'],
+      })
       mockEnsurePagesWorkflow.mockResolvedValue({
         providerUrl: 'https://owner.github.io/repo/',
         pagesSource: 'workflow',
@@ -243,7 +267,17 @@ describe('POST /deploy/upload', () => {
         providerUrl: 'https://owner.github.io/repo/',
         pagesSource: 'workflow',
         pagesAction: 'enabled',
+        workflowSyncStatus: 'no_changes',
       })
+      expect(mockSyncWorkflows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo: 'owner/repo',
+          baseBranch: 'main',
+          mode: 'commit',
+          files: ['deploy.yml', 'deploy-pages.yml'],
+          force: false,
+        }),
+      )
       expect(mockEnsurePagesWorkflow).toHaveBeenCalledWith('owner', 'repo')
       expect(mockTriggerBuild).toHaveBeenCalledWith(
         'owner/repo',
@@ -257,6 +291,13 @@ describe('POST /deploy/upload', () => {
       process.env.ENABLE_GITHUB_PAGES = 'true'
       process.env.GITHUB_APP_ID = '123456'
       mockTriggerBuild.mockResolvedValue(undefined)
+      mockSyncWorkflows.mockResolvedValue({
+        status: 'no_changes',
+        repo: 'owner/repo',
+        mode: 'commit',
+        changedFiles: [],
+        skippedFiles: ['.github/workflows/deploy.yml', '.github/workflows/deploy-pages.yml'],
+      })
       mockGetPagesConfig.mockResolvedValue({
         providerUrl: 'https://owner.github.io/repo/',
         pagesSource: 'workflow',
@@ -290,6 +331,13 @@ describe('POST /deploy/upload', () => {
       process.env.ENABLE_GITHUB_PAGES = 'true'
       process.env.GITHUB_APP_ID = '123456'
       mockTriggerBuild.mockResolvedValue(undefined)
+      mockSyncWorkflows.mockResolvedValue({
+        status: 'no_changes',
+        repo: 'owner/repo',
+        mode: 'commit',
+        changedFiles: [],
+        skippedFiles: ['.github/workflows/deploy.yml', '.github/workflows/deploy-pages.yml'],
+      })
       mockEnsurePagesWorkflow.mockResolvedValue({
         providerUrl: 'https://owner.github.io/repo/',
         pagesSource: 'workflow',
@@ -417,6 +465,108 @@ describe('POST /deploy/upload', () => {
           }),
         ]),
       )
+    })
+
+    test('returns 403 when workflow injection feature flag is disabled', async () => {
+      const response = await request(app)
+        .post('/deploy/workflows/sync')
+        .send({ repo: 'owner/repo' })
+
+      expect(response.status).toBe(403)
+      expect(response.body).toEqual({ error: 'Workflow injection is disabled' })
+      expect(mockSyncWorkflows).not.toHaveBeenCalled()
+    })
+
+    test('returns 400 for invalid workflow sync mode', async () => {
+      process.env.ENABLE_WORKFLOW_INJECTION = 'true'
+
+      const response = await request(app)
+        .post('/deploy/workflows/sync')
+        .send({
+          repo: 'owner/repo',
+          mode: 'invalid',
+        })
+
+      expect(response.status).toBe(400)
+      expect(response.body).toEqual({ error: 'Invalid mode. Allowed values: commit' })
+      expect(mockSyncWorkflows).not.toHaveBeenCalled()
+    })
+
+    test('returns 400 for invalid workflow file list', async () => {
+      process.env.ENABLE_WORKFLOW_INJECTION = 'true'
+
+      const response = await request(app)
+        .post('/deploy/workflows/sync')
+        .send({
+          repo: 'owner/repo',
+          files: ['deploy.yml', 'custom.yml'],
+        })
+
+      expect(response.status).toBe(400)
+      expect(response.body).toEqual({ error: 'Unsupported workflow files: custom.yml' })
+      expect(mockSyncWorkflows).not.toHaveBeenCalled()
+    })
+
+    test('returns 202 when workflow sync changes files in commit mode', async () => {
+      process.env.ENABLE_WORKFLOW_INJECTION = 'true'
+      mockSyncWorkflows.mockResolvedValue({
+        status: 'synced',
+        repo: 'owner/repo',
+        mode: 'commit',
+        branch: 'main',
+        changedFiles: [
+          '.github/workflows/deploy.yml',
+          '.github/workflows/deploy-pages.yml',
+        ],
+        skippedFiles: [],
+      })
+
+      const response = await request(app)
+        .post('/deploy/workflows/sync')
+        .send({
+          repo: 'owner/repo',
+          mode: 'commit',
+          baseBranch: 'main',
+          files: ['deploy.yml', 'deploy-pages.yml'],
+        })
+
+      expect(response.status).toBe(202)
+      expect(response.body).toMatchObject({
+        status: 'synced',
+        mode: 'commit',
+      })
+      expect(mockSyncWorkflows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo: 'owner/repo',
+          mode: 'commit',
+          baseBranch: 'main',
+          files: ['deploy.yml', 'deploy-pages.yml'],
+          force: false,
+        }),
+      )
+    })
+
+    test('returns 200 when workflow sync has no changes', async () => {
+      process.env.ENABLE_WORKFLOW_INJECTION = 'true'
+      mockSyncWorkflows.mockResolvedValue({
+        status: 'no_changes',
+        repo: 'owner/repo',
+        mode: 'commit',
+        changedFiles: [],
+        skippedFiles: [
+          '.github/workflows/deploy.yml',
+          '.github/workflows/deploy-pages.yml',
+        ],
+      })
+
+      const response = await request(app)
+        .post('/deploy/workflows/sync')
+        .send({ repo: 'owner/repo' })
+
+      expect(response.status).toBe(200)
+      expect(response.body).toMatchObject({
+        status: 'no_changes',
+      })
     })
 
     test('returns 404 pages provider health for non-pages deployments', async () => {

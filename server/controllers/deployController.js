@@ -11,6 +11,11 @@ import {
   GitHubPagesError,
 } from '../services/githubPagesService.js'
 import {
+  MANAGED_WORKFLOW_FILES,
+  WorkflowInjectionError,
+  syncWorkflows,
+} from '../services/workflowInjectionService.js'
+import {
   getAllDeployStatuses,
   getDeployStatus,
   getProjectNameFromRepo,
@@ -19,10 +24,11 @@ import {
 
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
 const ALLOWED_HOSTING_TARGETS = new Set(['platform', 'github-pages'])
+const ALLOWED_WORKFLOW_SYNC_MODES = new Set(['commit'])
 
-const isGitHubPagesEnabled = () => process.env.ENABLE_GITHUB_PAGES === 'true'
-const isGitHubPagesAutoConfigEnabled = () =>
-  process.env.ENABLE_GITHUB_PAGES_AUTO_CONFIG === 'true'
+const isGitHubPagesEnabled = () => process.env.ENABLE_GITHUB_PAGES !== 'false'
+const isWorkflowInjectionEnabled = () =>
+  process.env.ENABLE_WORKFLOW_INJECTION === 'true'
 
 const getGitHubPagesUrl = (repo) => {
   const [owner, repoName] = repo.split('/')
@@ -150,6 +156,37 @@ const parseOwnerRepo = (repo) => {
   return { owner, repoName }
 }
 
+const validateWorkflowSyncFiles = (files) => {
+  if (files === undefined) {
+    return {
+      valid: true,
+      files: MANAGED_WORKFLOW_FILES,
+    }
+  }
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return {
+      valid: false,
+      error: 'files must be a non-empty array when provided',
+    }
+  }
+
+  const normalizedFiles = [...new Set(files.map((entry) => String(entry || '').trim()))]
+  const invalidFiles = normalizedFiles.filter((fileName) => !MANAGED_WORKFLOW_FILES.includes(fileName))
+
+  if (invalidFiles.length > 0) {
+    return {
+      valid: false,
+      error: `Unsupported workflow files: ${invalidFiles.join(', ')}`,
+    }
+  }
+
+  return {
+    valid: true,
+    files: normalizedFiles,
+  }
+}
+
 const getPagesConfigFromStatus = async (status, forceSync = false) => {
   const ownerRepo = parseOwnerRepo(status?.repo)
 
@@ -192,7 +229,7 @@ export const listRouteMappings = (req, res) => {
   const mappings = visibleStatuses.map((status) => ({
     project: status.project,
     repo: status.repo || null,
-    hostingTarget: status.hostingTarget || 'platform',
+    hostingTarget: status.hostingTarget || 'github-pages',
     hostingUrl: status.hostingUrl || `/sites/${status.project}/`,
     providerUrl: status.providerUrl || null,
     status: status.status,
@@ -375,10 +412,71 @@ export const syncPagesConfig = async (req, res) => {
   }
 }
 
+export const syncDeploymentWorkflows = async (req, res) => {
+  if (!isWorkflowInjectionEnabled()) {
+    return res.status(403).json({ error: 'Workflow injection is disabled' })
+  }
+
+  const repo = req.body?.repo
+  const baseBranch = req.body?.baseBranch || 'main'
+  const mode = req.body?.mode || 'commit'
+  const force = req.body?.force === true
+  const filesValidation = validateWorkflowSyncFiles(req.body?.files)
+
+  if (!repo) {
+    return res.status(400).json({ error: 'Missing repo name' })
+  }
+
+  if (!parseOwnerRepo(repo)) {
+    return res.status(400).json({ error: 'Invalid repo format. Expected owner/repo' })
+  }
+
+  if (!ALLOWED_WORKFLOW_SYNC_MODES.has(mode)) {
+    return res.status(400).json({ error: 'Invalid mode. Allowed values: commit' })
+  }
+
+  if (!filesValidation.valid) {
+    return res.status(400).json({ error: filesValidation.error })
+  }
+
+  try {
+    const result = await syncWorkflows({
+      repo,
+      baseBranch,
+      mode,
+      files: filesValidation.files,
+      force,
+    })
+
+    const statusCode = result.status === 'no_changes' ? 200 : 202
+    return res.status(statusCode).json(result)
+  } catch (error) {
+    if (error instanceof WorkflowInjectionError) {
+      return res.status(error.statusCode || 500).json({
+        error: 'Workflow sync failed',
+        code: error.code,
+        details: error.message,
+      })
+    }
+
+    logError('workflow_sync_failed', error, {
+      repo,
+      baseBranch,
+      mode,
+    })
+
+    return res.status(500).json({
+      error: 'Workflow sync failed',
+      code: 'workflow_sync_failed',
+      details: 'Unexpected error while syncing workflows',
+    })
+  }
+}
+
 export const triggerDeployment = async (req, res) => {
   const repo = req.body?.repo
   const branch = req.body?.branch || 'main'
-  const hostingTarget = req.body?.hostingTarget || 'platform'
+  const hostingTarget = req.body?.hostingTarget || 'github-pages'
   const hasGitHubAppConfig = Boolean(process.env.GITHUB_APP_ID)
   const githubToken = process.env.GITHUB_TOKEN
 
@@ -443,27 +541,42 @@ export const triggerDeployment = async (req, res) => {
     }
 
     let pagesConfig = null
+    let workflowSync = null
 
-    if (
-      hostingTarget === 'github-pages' &&
-      hasGitHubAppConfig &&
-      isGitHubPagesAutoConfigEnabled()
-    ) {
+    if (hostingTarget === 'github-pages' && hasGitHubAppConfig) {
       const ownerRepo = parseOwnerRepo(repo)
 
       if (!ownerRepo) {
         throw new GitHubPagesError('Invalid repository format for Pages auto configuration', 422, 'invalid_repo')
       }
 
+      workflowSync = await syncWorkflows({
+        repo,
+        baseBranch: branch,
+        mode: 'commit',
+        files: MANAGED_WORKFLOW_FILES,
+        force: false,
+      })
+
+      logEvent('workflow_sync_completed_for_deploy', {
+        repo,
+        branch,
+        project: projectName,
+        hostingTarget,
+        workflowSyncStatus: workflowSync?.status || 'unknown',
+        changedCount: workflowSync.changedFiles?.length || 0,
+        skippedCount: workflowSync.skippedFiles?.length || 0,
+      })
+
       pagesConfig = await ensurePagesWorkflow(ownerRepo.owner, ownerRepo.repoName)
-      providerUrl = pagesConfig.providerUrl || providerUrl
+      providerUrl = pagesConfig?.providerUrl || providerUrl
 
       logEvent('pages_sync_completed', {
         repo,
         project: projectName,
         hostingTarget,
-        pagesSource: pagesConfig.pagesSource,
-        action: pagesConfig.action,
+        pagesSource: pagesConfig?.pagesSource,
+        action: pagesConfig?.action,
         providerUrl,
       })
     }
@@ -491,6 +604,7 @@ export const triggerDeployment = async (req, res) => {
       providerUrl,
       pagesSource: pagesConfig?.pagesSource,
       pagesAction: pagesConfig?.action,
+      workflowSyncStatus: workflowSync?.status,
     })
 
     return res.status(202).json({
@@ -502,6 +616,7 @@ export const triggerDeployment = async (req, res) => {
       ...(providerUrl ? { providerUrl } : {}),
       ...(pagesConfig?.pagesSource ? { pagesSource: pagesConfig.pagesSource } : {}),
       ...(pagesConfig?.action ? { pagesAction: pagesConfig.action } : {}),
+      ...(workflowSync?.status ? { workflowSyncStatus: workflowSync.status } : {}),
     })
   } catch (err) {
     logError('deploy_trigger_failed', err, {
