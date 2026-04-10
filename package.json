@@ -1,0 +1,15 @@
+{
+  "name": "web-hosting-platform-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./frontend --filter ./server dev",
+    "dev:frontend": "pnpm --dir frontend dev",
+    "dev:server": "pnpm --dir server dev",
+    "build": "pnpm --dir frontend build",
+    "test": "pnpm --dir server test",
+    "lint": "pnpm --dir frontend lint",
+    "start": "pnpm --dir server start",
+    "start:prod": "pnpm --dir server start:prod"
+  }
+}
