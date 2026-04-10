@@ -27,18 +27,13 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: |
-            server/pnpm-lock.yaml
-            frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install server dependencies
-        working-directory: server
+      - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend via server script
-        working-directory: server
-        run: pnpm run build:frontend
+        run: pnpm --filter ./server run build:frontend
 
       - name: Run server tests
-        working-directory: server
-        run: pnpm test
+        run: pnpm --filter ./server test
