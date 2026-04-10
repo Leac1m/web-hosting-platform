@@ -1,25 +1,25 @@
 {
   "deployStatuses": {
-    "leac1m-react-ci-demo": {
-      "project": "leac1m-react-ci-demo",
+    "Leac1m-react-ci-demo": {
+      "project": "Leac1m-react-ci-demo",
       "status": "failed",
-      "updatedAt": "2026-03-13T08:34:16.525Z",
-      "repo": "leac1m/react-ci-demo",
+      "updatedAt": "2026-04-10T10:50:10.669Z",
+      "repo": "Leac1m/react-ci-demo",
       "branch": "main",
       "hostingTarget": "github-pages",
       "providerStatus": "failed",
-      "hostingUrl": "/sites/leac1m-react-ci-demo/",
+      "hostingUrl": "/sites/Leac1m-react-ci-demo/",
       "providerUrl": "https://leac1m.github.io/react-ci-demo/",
-      "reason": "getaddrinfo EAI_AGAIN api.github.com",
+      "reason": "Refusing to overwrite unmanaged file at .github/workflows/deploy.yml. Use force=true to override.",
       "pagesConfigured": true,
       "pagesSource": "workflow",
       "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-14T10:35:50.901Z"
+      "pagesLastCheckedAt": "2026-04-10T10:51:28.123Z"
     },
     "Leac1m-demo": {
       "project": "Leac1m-demo",
       "status": "queued",
-      "updatedAt": "2026-03-14T10:33:09.783Z",
+      "updatedAt": "2026-04-10T10:51:22.892Z",
       "repo": "Leac1m/demo",
       "branch": "main",
       "hostingTarget": "github-pages",
@@ -28,22 +28,7 @@
       "pagesConfigured": true,
       "pagesSource": "workflow",
       "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-14T10:35:50.520Z",
-      "providerStatus": "queued"
-    },
-    "Leac1m-react-ci-demo": {
-      "project": "Leac1m-react-ci-demo",
-      "status": "queued",
-      "updatedAt": "2026-03-13T19:40:00.514Z",
-      "repo": "Leac1m/react-ci-demo",
-      "branch": "main",
-      "hostingTarget": "github-pages",
-      "hostingUrl": "/sites/Leac1m-react-ci-demo/",
-      "providerUrl": "https://leac1m.github.io/react-ci-demo/",
-      "pagesConfigured": true,
-      "pagesSource": "workflow",
-      "pagesConfigStatus": "ok",
-      "pagesLastCheckedAt": "2026-03-14T10:35:50.843Z",
+      "pagesLastCheckedAt": "2026-04-10T11:02:44.018Z",
       "providerStatus": "queued"
     }
   }

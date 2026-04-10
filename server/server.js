@@ -17,6 +17,7 @@ fs.mkdirSync('tmp', { recursive: true })
 fs.mkdirSync('deployments', { recursive: true })
 
 const deploymentsPath = path.join(process.cwd(), 'deployments')
+const frontendDistPath = path.resolve(process.cwd(), '../frontend/dist')
 const HOP_BY_HOP_HEADERS = new Set([
 	'connection',
 	'keep-alive',
@@ -246,5 +247,31 @@ app.use(async (req, res, next) => {
 app.use('/auth', authRoutes)
 app.use('/deploy', deployRoutes)
 app.use('/api/github', githubRoutes)
+
+if (fs.existsSync(frontendDistPath)) {
+	app.use(express.static(frontendDistPath))
+
+	app.get(/.*/, (req, res, next) => {
+		if (req.method !== 'GET') {
+			return next()
+		}
+
+		if (
+			req.path.startsWith('/auth') ||
+			req.path.startsWith('/deploy') ||
+			req.path.startsWith('/api') ||
+			req.path.startsWith('/sites') ||
+			req.path.startsWith('/webhooks')
+		) {
+			return next()
+		}
+
+		if (/\.[A-Za-z0-9]+$/.test(req.path)) {
+			return next()
+		}
+
+		return res.sendFile(path.join(frontendDistPath, 'index.html'))
+	})
+}
 
 export default app

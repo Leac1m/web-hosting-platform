@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: web-hosting-platform
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    rootDir: .
+    buildCommand: cd server && corepack enable && pnpm install --frozen-lockfile && pnpm run build:frontend
+    startCommand: cd server && pnpm run start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DEPLOY_BACKEND_URL
+        sync: false
+      - key: DEPLOY_SECRET
+        sync: false
+      - key: ENABLE_GITHUB_PAGES
+        value: "true"
+      - key: ENABLE_WORKFLOW_INJECTION
+        value: "true"
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY_BASE64
+        sync: false
