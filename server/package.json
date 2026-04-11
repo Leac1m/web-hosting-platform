@@ -12,7 +12,8 @@
 		"start:prod": "pnpm run build:frontend && pnpm run start",
 		"db:generate": "drizzle-kit generate --config=drizzle.config.js",
 		"db:migrate": "drizzle-kit migrate --config=drizzle.config.js",
-		"db:studio": "drizzle-kit studio --config=drizzle.config.js"
+		"db:studio": "drizzle-kit studio --config=drizzle.config.js",
+		"db:backfill": "node ./scripts/migrate-db-json-to-neon.js"
 	},
 	"dependencies": {
 		"@neondatabase/serverless": "^0.10.4",

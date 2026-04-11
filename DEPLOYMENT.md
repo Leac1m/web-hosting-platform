@@ -122,6 +122,12 @@ Apply migrations to Neon:
 pnpm db:migrate
 ```
 
+Backfill legacy deployment status data (optional, one-time):
+
+```bash
+pnpm --dir server db:backfill /path/to/legacy-db.json
+```
+
 Open Drizzle Studio (optional):
 
 ```bash

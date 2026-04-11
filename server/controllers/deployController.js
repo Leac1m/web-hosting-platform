@@ -201,9 +201,9 @@ const getPagesConfigFromStatus = async (status, forceSync = false) => {
   return fetchPagesConfig(ownerRepo.owner, ownerRepo.repoName)
 }
 
-export const getDeploymentStatus = (req, res) => {
+export const getDeploymentStatus = async (req, res) => {
   const project = req.params.project
-  const status = getDeployStatus(project)
+  const status = await getDeployStatus(project)
 
   if (!status) {
     return res.status(404).json({ error: 'Deployment status not found' })
@@ -212,18 +212,18 @@ export const getDeploymentStatus = (req, res) => {
   return res.json(status)
 }
 
-export const listDeployments = (req, res) => {
+export const listDeployments = async (req, res) => {
   const username = req.user?.login
-  const allStatuses = getAllDeployStatuses()
+  const allStatuses = await getAllDeployStatuses()
 
   const ownedDeployments = filterStatusesForUser(allStatuses, username)
 
   return res.json(ownedDeployments)
 }
 
-export const listRouteMappings = (req, res) => {
+export const listRouteMappings = async (req, res) => {
   const username = req.user?.login
-  const allStatuses = getAllDeployStatuses()
+  const allStatuses = await getAllDeployStatuses()
   const visibleStatuses = filterStatusesForUser(allStatuses, username)
 
   const mappings = visibleStatuses.map((status) => ({
@@ -239,9 +239,9 @@ export const listRouteMappings = (req, res) => {
   return res.json(mappings)
 }
 
-export const getPagesDeploymentStatus = (req, res) => {
+export const getPagesDeploymentStatus = async (req, res) => {
   const project = req.params.project
-  const status = getDeployStatus(project)
+  const status = await getDeployStatus(project)
 
   if (!status) {
     return res.status(404).json({ error: 'Deployment status not found' })
@@ -268,7 +268,7 @@ export const getPagesDeploymentStatus = (req, res) => {
 
 export const getPagesProviderHealth = async (req, res) => {
   const project = req.params.project
-  const status = getDeployStatus(project)
+  const status = await getDeployStatus(project)
 
   if (!status) {
     return res.status(404).json({ error: 'Deployment status not found' })
@@ -308,7 +308,7 @@ export const getPagesProviderHealth = async (req, res) => {
 
 export const getPagesConfig = async (req, res) => {
   const project = req.params.project
-  const status = getDeployStatus(project)
+  const status = await getDeployStatus(project)
 
   if (!status) {
     return res.status(404).json({ error: 'Deployment status not found' })
@@ -329,7 +329,7 @@ export const getPagesConfig = async (req, res) => {
   try {
     const config = await getPagesConfigFromStatus(status)
 
-    setDeployStatus(project, status.status, {
+    await setDeployStatus(project, status.status, {
       ...status,
       providerUrl: config.providerUrl || status.providerUrl,
       pagesConfigured: true,
@@ -362,7 +362,7 @@ export const getPagesConfig = async (req, res) => {
 
 export const syncPagesConfig = async (req, res) => {
   const project = req.params.project
-  const status = getDeployStatus(project)
+  const status = await getDeployStatus(project)
 
   if (!status) {
     return res.status(404).json({ error: 'Deployment status not found' })
@@ -383,7 +383,7 @@ export const syncPagesConfig = async (req, res) => {
   try {
     const config = await getPagesConfigFromStatus(status, true)
 
-    setDeployStatus(project, status.status, {
+    await setDeployStatus(project, status.status, {
       ...status,
       providerUrl: config.providerUrl || status.providerUrl,
       pagesConfigured: true,
@@ -583,7 +583,7 @@ export const triggerDeployment = async (req, res) => {
 
     await triggerBuild(repo, branch, githubToken, { hostingTarget })
 
-    setDeployStatus(projectName, 'queued', {
+    await setDeployStatus(projectName, 'queued', {
       repo,
       branch,
       hostingTarget,
@@ -625,7 +625,7 @@ export const triggerDeployment = async (req, res) => {
       project: projectName,
       hostingTarget,
     })
-    setDeployStatus(projectName, 'failed', {
+    await setDeployStatus(projectName, 'failed', {
       repo,
       branch,
       hostingTarget,
@@ -703,7 +703,7 @@ export const uploadArtifact = async (req, res) => {
   const projectName = validation.projectName
 
   logEvent('artifact_received', { project: projectName, repo, commit })
-  setDeployStatus(projectName, 'upload_received', {
+  await setDeployStatus(projectName, 'upload_received', {
     repo,
     commit,
     hostingTarget: 'platform',
@@ -724,7 +724,7 @@ export const uploadArtifact = async (req, res) => {
 
     fs.unlinkSync(req.file.path)
 
-    setDeployStatus(projectName, 'live', {
+    await setDeployStatus(projectName, 'live', {
       repo,
       commit,
       hostingTarget: 'platform',
@@ -750,7 +750,7 @@ export const uploadArtifact = async (req, res) => {
       repo,
       commit,
     })
-    setDeployStatus(projectName, 'failed', {
+    await setDeployStatus(projectName, 'failed', {
       repo,
       commit,
       reason: err?.message || 'Unknown error',

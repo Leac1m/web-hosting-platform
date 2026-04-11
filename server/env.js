@@ -61,12 +61,26 @@ function validateAuthConfig() {
   return [...missing, ...invalid]
 }
 
+function validateDatabaseConfig() {
+  const provider = (process.env.DB_PROVIDER || 'postgres').trim().toLowerCase()
+
+  if (provider !== 'postgres') {
+    return []
+  }
+
+  return collectMissing(['DATABASE_URL'])
+}
+
 export function validateEnv() {
   if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
     return
   }
 
-  const missing = [...collectMissing(['DEPLOY_SECRET']), ...validateAuthConfig()]
+  const missing = [
+    ...collectMissing(['DEPLOY_SECRET']),
+    ...validateAuthConfig(),
+    ...validateDatabaseConfig(),
+  ]
 
   if (missing.length > 0) {
     throw new Error(

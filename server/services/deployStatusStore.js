@@ -1,79 +1,134 @@
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import { desc, eq } from 'drizzle-orm'
+import { getDb } from '../db/client.js'
+import { deployStatuses } from '../db/schema.js'
 
-const deployStatusMap = new Map()
 const isTestEnv =
   process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID)
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const dbPath = path.resolve(__dirname, '../db.json')
+const testStatusMap = new Map()
 
-const ensureDbFile = () => {
-  if (fs.existsSync(dbPath)) {
-    return
+const normalizeRow = (row) => {
+  if (!row) {
+    return null
   }
 
-  const initialState = {
-    deployStatuses: {},
-  }
-
-  fs.writeFileSync(dbPath, `${JSON.stringify(initialState, null, 2)}\n`, 'utf8')
-}
-
-const loadPersistedStatuses = () => {
-  if (isTestEnv) {
-    return
-  }
-
-  try {
-    ensureDbFile()
-    const raw = fs.readFileSync(dbPath, 'utf8')
-    const parsed = JSON.parse(raw)
-    const entries = Object.entries(parsed?.deployStatuses || {})
-
-    entries.forEach(([project, value]) => {
-      deployStatusMap.set(project, value)
-    })
-  } catch {
-    deployStatusMap.clear()
+  return {
+    project: row.project,
+    status: row.status,
+    updatedAt: row.updatedAt?.toISOString?.() || row.updatedAt || null,
+    repo: row.repo || undefined,
+    branch: row.branch || undefined,
+    hostingTarget: row.hostingTarget || undefined,
+    providerStatus: row.providerStatus || undefined,
+    hostingUrl: row.hostingUrl || undefined,
+    providerUrl: row.providerUrl || undefined,
+    reason: row.reason || undefined,
+    pagesConfigured:
+      typeof row.pagesConfigured === 'boolean' ? row.pagesConfigured : undefined,
+    pagesSource: row.pagesSource || undefined,
+    pagesConfigStatus: row.pagesConfigStatus || undefined,
+    pagesLastCheckedAt:
+      row.pagesLastCheckedAt?.toISOString?.() || row.pagesLastCheckedAt || undefined,
   }
 }
 
-const persistStatuses = () => {
-  if (isTestEnv) {
-    return
+const toDateOrNull = (value) => {
+  if (!value) {
+    return null
   }
 
-  try {
-    ensureDbFile()
-    const deployStatuses = Object.fromEntries(deployStatusMap.entries())
-    const serialized = JSON.stringify({ deployStatuses }, null, 2)
-    fs.writeFileSync(dbPath, `${serialized}\n`, 'utf8')
-  } catch {
-    // Ignore persistence failures to keep runtime behavior non-blocking.
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null
   }
+
+  return parsed
 }
 
-loadPersistedStatuses()
-
-export function setDeployStatus(project, status, details = {}) {
-  deployStatusMap.set(project, {
+export async function setDeployStatus(project, status, details = {}) {
+  const nextStatus = {
     project,
     status,
     updatedAt: new Date().toISOString(),
     ...details,
-  })
+  }
 
-  persistStatuses()
+  if (isTestEnv) {
+    testStatusMap.set(project, nextStatus)
+    return
+  }
+
+  const db = getDb()
+  const values = {
+    project: nextStatus.project,
+    status: nextStatus.status,
+    updatedAt: new Date(nextStatus.updatedAt),
+    repo: nextStatus.repo ?? null,
+    branch: nextStatus.branch ?? null,
+    hostingTarget: nextStatus.hostingTarget ?? null,
+    providerStatus: nextStatus.providerStatus ?? null,
+    hostingUrl: nextStatus.hostingUrl ?? null,
+    providerUrl: nextStatus.providerUrl ?? null,
+    reason: nextStatus.reason ?? null,
+    pagesConfigured:
+      typeof nextStatus.pagesConfigured === 'boolean'
+        ? nextStatus.pagesConfigured
+        : null,
+    pagesSource: nextStatus.pagesSource ?? null,
+    pagesConfigStatus: nextStatus.pagesConfigStatus ?? null,
+    pagesLastCheckedAt: toDateOrNull(nextStatus.pagesLastCheckedAt),
+  }
+
+  await db
+    .insert(deployStatuses)
+    .values(values)
+    .onConflictDoUpdate({
+      target: deployStatuses.project,
+      set: {
+        status: values.status,
+        updatedAt: values.updatedAt,
+        repo: values.repo,
+        branch: values.branch,
+        hostingTarget: values.hostingTarget,
+        providerStatus: values.providerStatus,
+        hostingUrl: values.hostingUrl,
+        providerUrl: values.providerUrl,
+        reason: values.reason,
+        pagesConfigured: values.pagesConfigured,
+        pagesSource: values.pagesSource,
+        pagesConfigStatus: values.pagesConfigStatus,
+        pagesLastCheckedAt: values.pagesLastCheckedAt,
+      },
+    })
 }
 
-export function getDeployStatus(project) {
-  return deployStatusMap.get(project) || null
+export async function getDeployStatus(project) {
+  if (isTestEnv) {
+    return testStatusMap.get(project) || null
+  }
+
+  const db = getDb()
+  const rows = await db
+    .select()
+    .from(deployStatuses)
+    .where(eq(deployStatuses.project, project))
+    .limit(1)
+
+  return normalizeRow(rows[0])
 }
 
-export function getAllDeployStatuses() {
-  return Array.from(deployStatusMap.values())
+export async function getAllDeployStatuses() {
+  if (isTestEnv) {
+    return Array.from(testStatusMap.values())
+  }
+
+  const db = getDb()
+  const rows = await db
+    .select()
+    .from(deployStatuses)
+    .orderBy(desc(deployStatuses.updatedAt))
+
+  return rows.map(normalizeRow)
 }
 
 export function getProjectNameFromRepo(repo) {

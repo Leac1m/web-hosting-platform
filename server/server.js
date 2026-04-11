@@ -61,8 +61,8 @@ const getGitHubPagesUrlFromRepo = (repo) => {
 	return `https://${owner}.github.io/${repoName}/`
 }
 
-const resolvePagesProviderUrl = (projectName) => {
-	const status = getDeployStatus(projectName)
+const resolvePagesProviderUrl = async (projectName) => {
+	const status = await getDeployStatus(projectName)
 
 	if (!status || status.hostingTarget !== 'github-pages') {
 		return null
@@ -120,7 +120,7 @@ const getRequestSearch = (req) => {
 }
 
 const relayFromGitHubPages = async (req, res, projectName, relativePath = '/') => {
-	const providerBaseUrl = resolvePagesProviderUrl(projectName)
+	const providerBaseUrl = await resolvePagesProviderUrl(projectName)
 
 	if (!providerBaseUrl) {
 		return false
