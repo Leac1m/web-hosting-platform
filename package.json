@@ -10,6 +10,9 @@
     "test": "pnpm --dir server test",
     "lint": "pnpm --dir frontend lint",
     "start": "pnpm --dir server start",
-    "start:prod": "pnpm --dir server start:prod"
+    "start:prod": "pnpm --dir server start:prod",
+    "db:generate": "pnpm --dir server db:generate",
+    "db:migrate": "pnpm --dir server db:migrate",
+    "db:studio": "pnpm --dir server db:studio"
   }
 }

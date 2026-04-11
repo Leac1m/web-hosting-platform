@@ -101,6 +101,37 @@ gh workflow run deploy.yml --ref main
 
 ## Local Testing
 
+### Neon Postgres + Drizzle (recommended)
+
+Configure environment values in `.env`:
+
+```bash
+DATABASE_URL=postgresql://<user>:<password>@<project>-pooler.<region>.aws.neon.tech/<db>?sslmode=require
+DIRECT_DATABASE_URL=postgresql://<user>:<password>@<project>.<region>.aws.neon.tech/<db>?sslmode=require
+```
+
+Generate a migration from the Drizzle schema:
+
+```bash
+pnpm db:generate
+```
+
+Apply migrations to Neon:
+
+```bash
+pnpm db:migrate
+```
+
+Open Drizzle Studio (optional):
+
+```bash
+pnpm db:studio
+```
+
+Neon guidance used for this setup:
+- Prefer pooled URL for app runtime.
+- Prefer direct URL for schema migration and admin tasks.
+
 To test locally without pushing to GitHub:
 
 1. Start the server with `.env` file:

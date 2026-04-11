@@ -9,21 +9,27 @@
 		"test": "NODE_OPTIONS=--experimental-vm-modules jest",
 		"build:frontend": "pnpm --dir ../frontend install --frozen-lockfile && pnpm --dir ../frontend build",
 		"start": "node index.js",
-		"start:prod": "pnpm run build:frontend && pnpm run start"
+		"start:prod": "pnpm run build:frontend && pnpm run start",
+		"db:generate": "drizzle-kit generate --config=drizzle.config.js",
+		"db:migrate": "drizzle-kit migrate --config=drizzle.config.js",
+		"db:studio": "drizzle-kit studio --config=drizzle.config.js"
 	},
 	"dependencies": {
+		"@neondatabase/serverless": "^0.10.4",
 		"@octokit/auth-app": "^8.2.0",
 		"@octokit/rest": "^22.0.1",
 		"axios": "^1.13.6",
 		"cookie-parser": "^1.4.7",
 		"cors": "^2.8.6",
 		"dotenv": "^17.3.1",
+		"drizzle-orm": "^0.44.2",
 		"express": "^5.2.1",
 		"libsodium-wrappers": "^0.8.2",
 		"multer": "^2.1.1",
 		"tar": "^7.5.10"
 	},
 	"devDependencies": {
+		"drizzle-kit": "^0.31.7",
 		"jest": "^30.2.0",
 		"supertest": "^7.2.2"
 	}
