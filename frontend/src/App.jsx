@@ -2,7 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { API_BASE_URL, authApi, deployApi, githubApi } from './services/api'
 import './App.css'
 
-const toProjectName = (repoName) => repoName.replace('/', '-')
+const toProjectName = (repoName, branchName = 'main') => {
+  const normalizedBranch = String(branchName || 'main')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+  const baseProjectName = repoName.replace('/', '-')
+
+  if (!normalizedBranch || normalizedBranch === 'main') {
+    return baseProjectName
+  }
+
+  return `${baseProjectName}--${normalizedBranch}`
+}
 
 const formatRetryCountdown = (resetAt) => {
   if (!resetAt) {
@@ -278,7 +289,7 @@ function App() {
       )
       setDeployStatus(response.data)
 
-      const projectName = toProjectName(trimmedRepo)
+      const projectName = toProjectName(trimmedRepo, branch.trim() || 'main')
       setActiveProject(projectName)
       setActiveProjectTarget(hostingTarget)
       await loadStatus(projectName, hostingTarget)
@@ -365,7 +376,6 @@ function App() {
               onChange={(event) => setHostingTarget(event.target.value)}
             >
               <option value="github-pages">GitHub Pages</option>
-              <option value="platform">Platform</option>
             </select>
           </label>
 

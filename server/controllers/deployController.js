@@ -4,7 +4,6 @@ import * as tar from 'tar'
 import { triggerBuild, GitHubError } from '../services/buildService.js'
 import { validateRepoName } from '../services/pathValidator.js'
 import { logEvent, logError } from '../services/logger.js'
-import { updateRepositorySecrets } from '../services/githubAppAuth.js'
 import {
   ensurePagesWorkflow,
   getPagesConfig as fetchPagesConfig,
@@ -18,12 +17,12 @@ import {
 import {
   getAllDeployStatuses,
   getDeployStatus,
-  getProjectNameFromRepo,
+  getProjectNameFromRepoAndBranch,
   setDeployStatus,
 } from '../services/deployStatusStore.js'
 
 const DEPLOY_SECRET = process.env.DEPLOY_SECRET
-const ALLOWED_HOSTING_TARGETS = new Set(['platform', 'github-pages'])
+const ALLOWED_HOSTING_TARGETS = new Set(['github-pages'])
 const ALLOWED_WORKFLOW_SYNC_MODES = new Set(['commit'])
 
 const isGitHubPagesEnabled = () => process.env.ENABLE_GITHUB_PAGES !== 'false'
@@ -136,14 +135,38 @@ const normalizeDeployPath = (deployPath, projectName) => {
   }
 }
 
-const filterStatusesForUser = (statuses, username) => {
-  if (!username) {
-    return statuses
+const isStatusOwnedByUser = (status, username) => {
+  if (!username || !status) {
+    return false
   }
 
-  return statuses.filter((item) =>
-    item.repo?.toLowerCase().startsWith(`${username.toLowerCase()}/`)
-  )
+  if (status.ownerLogin) {
+    return status.ownerLogin.toLowerCase() === username.toLowerCase()
+  }
+
+  const ownerRepo = parseOwnerRepo(status.repo)
+
+  if (!ownerRepo) {
+    return false
+  }
+
+  return ownerRepo.owner.toLowerCase() === username.toLowerCase()
+}
+
+const filterStatusesForUser = (statuses, username) => {
+  if (!username) {
+    return []
+  }
+
+  return statuses.filter((item) => isStatusOwnedByUser(item, username))
+}
+
+const normalizeHostingTarget = (value) => {
+  if (value === 'github_pages') {
+    return 'github-pages'
+  }
+
+  return value
 }
 
 const parseOwnerRepo = (repo) => {
@@ -202,10 +225,11 @@ const getPagesConfigFromStatus = async (status, forceSync = false) => {
 }
 
 export const getDeploymentStatus = async (req, res) => {
+  const username = req.user?.login
   const project = req.params.project
   const status = await getDeployStatus(project)
 
-  if (!status) {
+  if (!status || !isStatusOwnedByUser(status, username)) {
     return res.status(404).json({ error: 'Deployment status not found' })
   }
 
@@ -240,10 +264,11 @@ export const listRouteMappings = async (req, res) => {
 }
 
 export const getPagesDeploymentStatus = async (req, res) => {
+  const username = req.user?.login
   const project = req.params.project
   const status = await getDeployStatus(project)
 
-  if (!status) {
+  if (!status || !isStatusOwnedByUser(status, username)) {
     return res.status(404).json({ error: 'Deployment status not found' })
   }
 
@@ -267,10 +292,11 @@ export const getPagesDeploymentStatus = async (req, res) => {
 }
 
 export const getPagesProviderHealth = async (req, res) => {
+  const username = req.user?.login
   const project = req.params.project
   const status = await getDeployStatus(project)
 
-  if (!status) {
+  if (!status || !isStatusOwnedByUser(status, username)) {
     return res.status(404).json({ error: 'Deployment status not found' })
   }
 
@@ -307,10 +333,11 @@ export const getPagesProviderHealth = async (req, res) => {
 }
 
 export const getPagesConfig = async (req, res) => {
+  const username = req.user?.login
   const project = req.params.project
   const status = await getDeployStatus(project)
 
-  if (!status) {
+  if (!status || !isStatusOwnedByUser(status, username)) {
     return res.status(404).json({ error: 'Deployment status not found' })
   }
 
@@ -361,10 +388,11 @@ export const getPagesConfig = async (req, res) => {
 }
 
 export const syncPagesConfig = async (req, res) => {
+  const username = req.user?.login
   const project = req.params.project
   const status = await getDeployStatus(project)
 
-  if (!status) {
+  if (!status || !isStatusOwnedByUser(status, username)) {
     return res.status(404).json({ error: 'Deployment status not found' })
   }
 
@@ -476,7 +504,10 @@ export const syncDeploymentWorkflows = async (req, res) => {
 export const triggerDeployment = async (req, res) => {
   const repo = req.body?.repo
   const branch = req.body?.branch || 'main'
-  const hostingTarget = req.body?.hostingTarget || 'github-pages'
+  const hostingTarget = normalizeHostingTarget(
+    req.body?.hostingTarget || 'github-pages',
+  )
+  const ownerLogin = req.user?.login
   const hasGitHubAppConfig = Boolean(process.env.GITHUB_APP_ID)
   const githubToken = process.env.GITHUB_TOKEN
 
@@ -492,7 +523,7 @@ export const triggerDeployment = async (req, res) => {
 
   if (!ALLOWED_HOSTING_TARGETS.has(hostingTarget)) {
     return res.status(400).json({
-      error: 'Invalid hostingTarget. Allowed values: platform, github-pages',
+      error: 'Invalid hostingTarget. Allowed values: github-pages',
     })
   }
 
@@ -502,7 +533,7 @@ export const triggerDeployment = async (req, res) => {
     })
   }
 
-  const projectName = getProjectNameFromRepo(repo)
+  const projectName = getProjectNameFromRepoAndBranch(repo, branch)
   let providerUrl =
     hostingTarget === 'github-pages' ? getGitHubPagesUrl(repo) : undefined
   const hostingUrl =
@@ -518,28 +549,6 @@ export const triggerDeployment = async (req, res) => {
   })
 
   try {
-    // Update repository secrets if using GitHub App
-    if (hasGitHubAppConfig && hostingTarget === 'platform') {
-      const [owner, repoName] = repo.split('/')
-      const deployBackendUrl = process.env.DEPLOY_BACKEND_URL || 'http://localhost:3000'
-      const deploySecret = process.env.DEPLOY_SECRET
-
-      if (!deploySecret) {
-        throw new Error('DEPLOY_SECRET not configured')
-      }
-
-      await updateRepositorySecrets(owner, repoName, {
-        DEPLOY_BACKEND_URL: deployBackendUrl,
-        DEPLOY_SECRET: deploySecret,
-      })
-
-      logEvent('secrets_updated', {
-        repo,
-        project: projectName,
-        hostingTarget,
-      })
-    }
-
     let pagesConfig = null
     let workflowSync = null
 
@@ -584,6 +593,7 @@ export const triggerDeployment = async (req, res) => {
     await triggerBuild(repo, branch, githubToken, { hostingTarget })
 
     await setDeployStatus(projectName, 'queued', {
+      ownerLogin,
       repo,
       branch,
       hostingTarget,
@@ -626,6 +636,7 @@ export const triggerDeployment = async (req, res) => {
       hostingTarget,
     })
     await setDeployStatus(projectName, 'failed', {
+      ownerLogin,
       repo,
       branch,
       hostingTarget,
@@ -701,9 +712,14 @@ export const uploadArtifact = async (req, res) => {
   }
 
   const projectName = validation.projectName
+  const existingStatus = await getDeployStatus(projectName)
+  const ownerRepo = parseOwnerRepo(repo)
+  const ownerLogin =
+    existingStatus?.ownerLogin || ownerRepo?.owner || undefined
 
   logEvent('artifact_received', { project: projectName, repo, commit })
   await setDeployStatus(projectName, 'upload_received', {
+    ownerLogin,
     repo,
     commit,
     hostingTarget: 'platform',
@@ -725,6 +741,7 @@ export const uploadArtifact = async (req, res) => {
     fs.unlinkSync(req.file.path)
 
     await setDeployStatus(projectName, 'live', {
+      ownerLogin,
       repo,
       commit,
       hostingTarget: 'platform',
@@ -751,6 +768,7 @@ export const uploadArtifact = async (req, res) => {
       commit,
     })
     await setDeployStatus(projectName, 'failed', {
+      ownerLogin,
       repo,
       commit,
       reason: err?.message || 'Unknown error',

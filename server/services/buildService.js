@@ -2,7 +2,6 @@ import axios from "axios"
 import { triggerWorkflowWithApp } from "./githubAppAuth.js"
 
 const WORKFLOWS_BY_TARGET = {
-  platform: 'deploy.yml',
   'github-pages': 'deploy-pages.yml',
 }
 
@@ -57,12 +56,22 @@ function mapGitHubError(err) {
 }
 
 function resolveWorkflowId(hostingTarget) {
-  return WORKFLOWS_BY_TARGET[hostingTarget] || WORKFLOWS_BY_TARGET.platform
+  const workflowId = WORKFLOWS_BY_TARGET[hostingTarget]
+
+  if (!workflowId) {
+    throw new GitHubError(
+      'Invalid hosting target. Only github-pages is supported',
+      400,
+      'unsupported_hosting_target',
+    )
+  }
+
+  return workflowId
 }
 
 export async function triggerBuild(repo, branch, token = null, options = {}) {
 
-  const hostingTarget = options.hostingTarget || 'platform'
+  const hostingTarget = options.hostingTarget || 'github-pages'
   const workflowId = resolveWorkflowId(hostingTarget)
 
   const [owner, repoName] = repo.split("/")

@@ -171,7 +171,7 @@ describe('POST /deploy/upload', () => {
 
       expect(response.status).toBe(400)
       expect(response.body).toEqual({
-        error: 'Invalid hostingTarget. Allowed values: platform, github-pages',
+        error: 'Invalid hostingTarget. Allowed values: github-pages',
       })
       expect(mockTriggerBuild).not.toHaveBeenCalled()
     })
@@ -431,14 +431,6 @@ describe('POST /deploy/upload', () => {
       await request(app)
         .post('/deploy')
         .send({
-          repo: 'test-user/repo-platform',
-          branch: 'main',
-          hostingTarget: 'platform',
-        })
-
-      await request(app)
-        .post('/deploy')
-        .send({
           repo: 'test-user/repo-pages',
           branch: 'main',
           hostingTarget: 'github-pages',
@@ -449,13 +441,6 @@ describe('POST /deploy/upload', () => {
       expect(response.status).toBe(200)
       expect(response.body).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            project: 'test-user-repo-platform',
-            repo: 'test-user/repo-platform',
-            hostingTarget: 'platform',
-            hostingUrl: '/sites/test-user-repo-platform/',
-            providerUrl: null,
-          }),
           expect.objectContaining({
             project: 'test-user-repo-pages',
             repo: 'test-user/repo-pages',
@@ -570,6 +555,7 @@ describe('POST /deploy/upload', () => {
     })
 
     test('returns 404 pages provider health for non-pages deployments', async () => {
+      mockTarX.mockResolvedValue(undefined)
       mockTriggerBuild.mockResolvedValue(undefined)
 
       await request(app)
@@ -577,8 +563,15 @@ describe('POST /deploy/upload', () => {
         .send({
           repo: 'owner/repo',
           branch: 'main',
-          hostingTarget: 'platform',
+          hostingTarget: 'github-pages',
         })
+
+      await request(app)
+        .post('/deploy/upload')
+        .set('Authorization', 'Bearer test-secret')
+        .field('repo', 'owner/repo')
+        .field('commit', 'abc123')
+        .attach('artifact', Buffer.from('fake tar'), 'artifact.tar')
 
       const response = await request(app).get('/deploy/pages-health/owner-repo')
 
@@ -714,6 +707,11 @@ describe('POST /deploy/upload', () => {
 
   test('returns success for a valid upload', async () => {
     mockTarX.mockResolvedValue(undefined)
+    mockTriggerBuild.mockResolvedValue(undefined)
+
+    await request(app)
+      .post('/deploy')
+      .send({ repo: 'owner/repo', branch: 'main', hostingTarget: 'github-pages' })
 
     const response = await request(app)
       .post('/deploy/upload')

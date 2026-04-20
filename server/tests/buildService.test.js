@@ -31,7 +31,7 @@ describe('buildService', () => {
     await triggerBuild('owner/repo', 'main', 'gh-token')
 
     expect(mockAxios.post).toHaveBeenCalledWith(
-      'https://api.github.com/repos/owner/repo/actions/workflows/deploy.yml/dispatches',
+      'https://api.github.com/repos/owner/repo/actions/workflows/deploy-pages.yml/dispatches',
       { ref: 'main' },
       {
         headers: {
@@ -53,8 +53,22 @@ describe('buildService', () => {
       'owner',
       'repo',
       'main',
-      'deploy.yml'
+      'deploy-pages.yml'
     )
+    expect(mockAxios.post).not.toHaveBeenCalled()
+  })
+
+  test('rejects unsupported hosting targets', async () => {
+    delete process.env.GITHUB_APP_ID
+
+    await expect(
+      triggerBuild('owner/repo', 'main', 'gh-token', {
+        hostingTarget: 'platform',
+      })
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      githubError: 'unsupported_hosting_target',
+    })
     expect(mockAxios.post).not.toHaveBeenCalled()
   })
 

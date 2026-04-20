@@ -13,6 +13,7 @@ const normalizeRow = (row) => {
 
   return {
     project: row.project,
+    ownerLogin: row.ownerLogin || undefined,
     status: row.status,
     updatedAt: row.updatedAt?.toISOString?.() || row.updatedAt || null,
     repo: row.repo || undefined,
@@ -61,6 +62,7 @@ export async function setDeployStatus(project, status, details = {}) {
   const db = getDb()
   const values = {
     project: nextStatus.project,
+    ownerLogin: nextStatus.ownerLogin ?? null,
     status: nextStatus.status,
     updatedAt: new Date(nextStatus.updatedAt),
     repo: nextStatus.repo ?? null,
@@ -85,6 +87,7 @@ export async function setDeployStatus(project, status, details = {}) {
     .onConflictDoUpdate({
       target: deployStatuses.project,
       set: {
+        ownerLogin: values.ownerLogin,
         status: values.status,
         updatedAt: values.updatedAt,
         repo: values.repo,
@@ -137,4 +140,21 @@ export function getProjectNameFromRepo(repo) {
   }
 
   return repo.replace('/', '-')
+}
+
+export function getProjectNameFromRepoAndBranch(repo, branch = 'main') {
+  if (!repo || typeof repo !== 'string') {
+    return null
+  }
+
+  const baseProjectName = repo.replace('/', '-')
+  const normalizedBranch = String(branch || 'main')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+
+  if (!normalizedBranch || normalizedBranch === 'main') {
+    return baseProjectName
+  }
+
+  return `${baseProjectName}--${normalizedBranch}`
 }
